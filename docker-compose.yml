@@ -71,3 +71,10 @@ services:
 
 volumes:
   bot-wallets:
+
+# Declared here too — Coolify's compose merge doesn't always inherit
+# networks from `include:` (chain/docker-compose.yml), which caused:
+#   service "admin" refers to undefined network richbucks
+networks:
+  richbucks:
+    name: richbucks
