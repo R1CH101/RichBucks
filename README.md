@@ -69,15 +69,9 @@ Use root `docker-compose.yml` (includes chain stack + bot + admin). Map domains:
 
 Secrets via Coolify env (never commit `.env`). Persist volumes for `chain/network/**/data` and `bot-wallets`.
 
-### Coworker node
+### Coworker node (v1.1)
 
-```bash
-cd chain/coworker
-# JOIN_API_KEY, JOIN_URL=https://admin.example/join/config, BOOTNODE_ENODE=...
-docker compose up -d
-```
-
-Image publishes to `ghcr.io/<owner>/coworker-node` on `main` via GitHub Actions (**Ubicloud** runners). Admin must vote the node in with `chain/scripts/add-validator.sh 0xAddress`.
+Public/coworker P2P is **off in v1** (no open 30303; use VPN later). Company validators peer only on the Docker network. The `chain/coworker` image remains for v1.1 + Tailscale/WireGuard.
 
 ### Teams
 
