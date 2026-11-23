@@ -1,0 +1,59 @@
+# Coolify / VPS all-in-one stack
+# 1) cd chain && ./scripts/init-network.sh prod
+# 2) Set BOOTNODE_ENODE after validator-1 first start (see README)
+# 3) Deploy this compose with env from .env.example
+
+include:
+  - path: chain/docker-compose.yml
+
+services:
+  bot:
+    build: ./bot
+    image: ghcr.io/${GHCR_OWNER:-richbucks}/bot:${TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RPC_URL: http://validator-1:8545
+      WALLET_DB_PATH: /data/wallets.sqlite
+      BOT_PORT: 3978
+    volumes:
+      - bot-wallets:/data
+    ports:
+      - "3978:3978"
+    depends_on:
+      validator-1:
+        condition: service_healthy
+    networks:
+      - richbucks
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3978/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+
+  admin:
+    build: ./admin
+    image: ghcr.io/${GHCR_OWNER:-richbucks}/admin:${TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RPC_URL: http://validator-1:8545
+      ADMIN_PORT: 3000
+      GENESIS_PATH: /config/genesis.json
+    volumes:
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      validator-1:
+        condition: service_healthy
+    networks:
+      - richbucks
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+
+volumes:
+  bot-wallets:

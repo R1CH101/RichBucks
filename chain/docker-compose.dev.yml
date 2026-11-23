@@ -1,0 +1,19 @@
+# Dev overlay: use genesis built from qbftConfig.dev.json (emptyblockperiodseconds: 30)
+# Usage:
+#   ./scripts/init-network.sh dev
+#   export BOOTNODE_ENODE=...
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  validator-1:
+    environment:
+      JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx512m}
+  validator-2:
+    environment:
+      JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx512m}
+  validator-3:
+    environment:
+      JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx512m}
+  validator-4:
+    environment:
+      JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx512m}

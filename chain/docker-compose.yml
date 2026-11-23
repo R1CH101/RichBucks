@@ -1,0 +1,152 @@
+# Production / Coolify stack — 4 QBFT validators + public RPC proxy
+# Prerequisites: ./scripts/init-network.sh prod  (generates ./network/)
+# Env: BESU_VERSION (default 25.1.0)
+
+x-besu-common: &besu-common
+  image: hyperledger/besu:${BESU_VERSION:-25.1.0}
+  restart: unless-stopped
+  networks:
+    - richbucks
+  environment:
+    JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
+  volumes:
+    - ./network/genesis.json:/config/genesis.json:ro
+
+services:
+  validator-1:
+    <<: *besu-common
+    container_name: rb-validator-1
+    command:
+      - --data-path=/data
+      - --genesis-file=/config/genesis.json
+      - --node-private-key-file=/data/key
+      - --min-gas-price=0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3,QBFT
+      - --rpc-http-cors-origins=all
+      - --host-allowlist=*
+      - --rpc-ws-enabled
+      - --rpc-ws-host=0.0.0.0
+      - --rpc-ws-port=8546
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - ./network/genesis.json:/config/genesis.json:ro
+      - ./network/validator-1/data:/data
+    ports:
+      - "8545:8545"
+      - "8546:8546"
+      - "30303:30303"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' http://127.0.0.1:8545 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  validator-2:
+    <<: *besu-common
+    container_name: rb-validator-2
+    depends_on:
+      validator-1:
+        condition: service_healthy
+    command:
+      - --data-path=/data
+      - --genesis-file=/config/genesis.json
+      - --node-private-key-file=/data/key
+      - --min-gas-price=0
+      - --bootnodes=${BOOTNODE_ENODE}
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3,QBFT
+      - --host-allowlist=*
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - ./network/genesis.json:/config/genesis.json:ro
+      - ./network/validator-2/data:/data
+    expose:
+      - "8545"
+
+  validator-3:
+    <<: *besu-common
+    container_name: rb-validator-3
+    depends_on:
+      validator-1:
+        condition: service_healthy
+    command:
+      - --data-path=/data
+      - --genesis-file=/config/genesis.json
+      - --node-private-key-file=/data/key
+      - --min-gas-price=0
+      - --bootnodes=${BOOTNODE_ENODE}
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3,QBFT
+      - --host-allowlist=*
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - ./network/genesis.json:/config/genesis.json:ro
+      - ./network/validator-3/data:/data
+    expose:
+      - "8545"
+
+  validator-4:
+    <<: *besu-common
+    container_name: rb-validator-4
+    depends_on:
+      validator-1:
+        condition: service_healthy
+    command:
+      - --data-path=/data
+      - --genesis-file=/config/genesis.json
+      - --node-private-key-file=/data/key
+      - --min-gas-price=0
+      - --bootnodes=${BOOTNODE_ENODE}
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3,QBFT
+      - --host-allowlist=*
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - ./network/genesis.json:/config/genesis.json:ro
+      - ./network/validator-4/data:/data
+    expose:
+      - "8545"
+
+  # Public wallet RPC — ETH/NET/WEB3 only (nginx strips path API key optionally)
+  rpc-proxy:
+    image: nginx:1.27-alpine
+    container_name: rb-rpc-proxy
+    depends_on:
+      validator-1:
+        condition: service_healthy
+    volumes:
+      - ./rpc-nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8549:80"
+    networks:
+      - richbucks
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+networks:
+  richbucks:
+    name: richbucks

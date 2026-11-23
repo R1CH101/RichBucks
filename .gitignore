@@ -1,0 +1,42 @@
+# Secrets and local env
+.env
+.env.local
+*.pem
+**/keystore/
+**/wallet.db
+**/wallets.sqlite*
+
+# Chain generated material (never commit live keys)
+chain/network/
+chain/data/
+chain/validator-*/data/
+chain/.bootnode
+
+# Dependencies and build
+node_modules/
+dist/
+build/
+coverage/
+cache/
+artifacts/
+typechain-types/
+.next/
+out/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Hardhat
+contracts/cache/
+contracts/artifacts/
+contracts/typechain-types/
+contracts/coverage/
+contracts/gasReporterOutput.json
+
+# Logs
+*.log
+npm-debug.log*

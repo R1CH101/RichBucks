@@ -1,0 +1,22 @@
+# Colleague node — just works (≤1GB RAM)
+# docker compose --env-file .env up -d
+services:
+  coworker-node:
+    image: ghcr.io/${GHCR_OWNER:-richbucks}/coworker-node:${TAG:-latest}
+    build: .
+    mem_limit: 1g
+    memswap_limit: 1g
+    environment:
+      JAVA_OPTS: -Xmx512m
+      JOIN_API_KEY: ${JOIN_API_KEY}
+      JOIN_URL: ${JOIN_URL}
+      BOOTNODE_ENODE: ${BOOTNODE_ENODE}
+    volumes:
+      - coworker-data:/data
+    ports:
+      - "8545:8545"
+      - "30303:30303"
+    restart: unless-stopped
+
+volumes:
+  coworker-data:

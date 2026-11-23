@@ -1,0 +1,48 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "00000000-0000-0000-0000-000000000001",
+  "developer": {
+    "name": "RichBucks",
+    "websiteUrl": "https://example.com",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "name": {
+    "short": "RichBucks",
+    "full": "RichBucks office joke token bot"
+  },
+  "description": {
+    "short": "Tip RichBucks in Teams",
+    "full": "Internal joke token with no cash value. Tip coworkers with /give, check /balance, transfer with /send. Not redeemable for money."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#0B3D2E",
+  "bots": [
+    {
+      "botId": "REPLACE_WITH_MICROSOFT_APP_ID",
+      "scopes": ["personal", "groupChat", "team"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal", "groupChat", "team"],
+          "commands": [
+            { "title": "help", "description": "Show RichBucks commands" },
+            { "title": "balance", "description": "Show your RB balance" },
+            { "title": "give", "description": "Tip 1 RB to @someone" },
+            { "title": "send", "description": "Send whole RB to @someone" },
+            { "title": "leaderboard", "description": "Top tippers and earners" },
+            { "title": "export-wallet", "description": "DM only: export key" }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": []
+}
