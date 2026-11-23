@@ -57,7 +57,12 @@ Domain: **richbucks.xyz** (Cloudflare). Suggested DNS records → VPS IP:
 | `admin.richbucks.xyz` | Proxied (orange) | Admin UI HTTPS |
 | `bot.richbucks.xyz` | Proxied (orange) | Teams webhook HTTPS |
 | `rpc.richbucks.xyz` | Proxied (orange) | Public JSON-RPC HTTPS |
-| `p2p.richbucks.xyz` | **DNS only (grey)** | Besu P2P / bootnode — Cloudflare HTTP proxy cannot carry port 30303 |
+
+**You do not need `p2p.richbucks.xyz` for day-one.** That name was only for Besu **validator peering** (TCP **30303**) so a coworker’s node can find your bootnode. Cloudflare **orange-cloud cannot proxy that** — grey-cloud DNS always **publishes your VPS IP** in the A record. If you don’t want the IP on `richbucks.xyz`, skip public P2P DNS entirely.
+
+**Recommended (hide VPS IP):** keep only orange-cloud `admin` / `bot` / `rpc`. Onboard coworker nodes over **Tailscale / WireGuard** (private `BOOTNODE_ENODE` like `enode://…@100.x.y.z:30303`). No public 30303, no grey-cloud hostname.
+
+**If you later want public peering without putting the IP on richbucks.xyz:** use a **different domain or a cheap second VPS** as a public bootnode/relay (that host’s IP will still be visible — you’re just not attaching it to the brand domain), or Cloudflare Spectrum (paid TCP proxy).
 
 Coolify / reverse-proxy map:
 
