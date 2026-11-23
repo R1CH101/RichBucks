@@ -53,12 +53,70 @@ const chain = new ChainClient(
 
 const HELP = [
   "**RichBucks** — internal joke token, no cash value.",
-  "`/balance` — your RB + address",
-  "`/give @Name [reason]` — tip 1 RB (once per London/configured day)",
-  "`/send @Name <whole amount>` — transfer RB you hold",
-  "`/leaderboard` — top tippers / earners / proposers",
-  "`/export-wallet` — DM only: export private key for MetaMask",
+  "`/balance` — your RB + address (**DM**; in a group you'll get a private reply)",
+  "`/give @Name [reason]` — tip **1 RB** once per day (minted; group or DM)",
+  "`/send @Name <whole amount>` — transfer RB you hold (group or DM)",
+  "`/leaderboard` — top tippers / earners / proposers (group or DM)",
+  "`/export-wallet` — **DM only**: export private key for MetaMask",
+  "`/help` — this list",
 ].join("\n");
+
+function isGroupConversation(context: TurnContext): boolean {
+  const t = context.activity.conversation?.conversationType;
+  return t === "groupChat" || t === "channel";
+}
+
+/** Personal details go to DM; in a group we acknowledge publicly then message privately. */
+async function replyPrivately(
+  context: TurnContext,
+  privateText: string,
+  groupAck = "Sent you a DM."
+) {
+  if (!isGroupConversation(context)) {
+    await context.sendActivity(privateText);
+    return;
+  }
+
+  await context.sendActivity(groupAck);
+
+  const appId = process.env.MICROSOFT_APP_ID || "";
+  const tenantId =
+    context.activity.conversation.tenantId ||
+    (context.activity.channelData as { tenant?: { id?: string } })?.tenant?.id;
+  const members = [
+    {
+      id: context.activity.from.id,
+      name: context.activity.from.name,
+    },
+  ];
+
+  try {
+    await adapter.createConversationAsync(
+      appId,
+      context.activity.channelId,
+      context.activity.serviceUrl,
+      "https://api.botframework.com",
+      {
+        isGroup: false,
+        bot: {
+          id: context.activity.recipient.id,
+          name: context.activity.recipient.name,
+        },
+        members,
+        tenantId,
+        channelData: tenantId ? { tenant: { id: tenantId } } : undefined,
+      } as Parameters<CloudAdapter["createConversationAsync"]>[4],
+      async (dmContext) => {
+        await dmContext.sendActivity(privateText);
+      }
+    );
+  } catch (e) {
+    console.error("DM failed", e);
+    await context.sendActivity(
+      "Couldn't DM you — open a 1:1 chat with RichBucks and run the command again."
+    );
+  }
+}
 
 async function ensureUser(context: TurnContext) {
   const teamsId = context.activity.from.aadObjectId || context.activity.from.id;
@@ -67,13 +125,17 @@ async function ensureUser(context: TurnContext) {
   if (created) {
     try {
       await chain.mintWelcome(wallet.address);
-      await context.sendActivity(
-        `Welcome to RichBucks. Custodial wallet created and welcome pack minted.\n\`${wallet.address}\``
+      await replyPrivately(
+        context,
+        `Welcome to RichBucks. Custodial wallet created and welcome pack minted.\n\`${wallet.address}\``,
+        "Welcome — check your DM for wallet details."
       );
     } catch (e) {
       console.error("welcome mint failed", e);
-      await context.sendActivity(
-        `Wallet created at \`${wallet.address}\` (welcome mint pending — ask admin).`
+      await replyPrivately(
+        context,
+        `Wallet created at \`${wallet.address}\` (welcome mint pending — ask admin).`,
+        "Welcome — check your DM for wallet details."
       );
     }
   }
@@ -128,7 +190,7 @@ async function handleMessage(context: TurnContext) {
       if (showMetamask) {
         msg += `\n\nRPC: \`${process.env.PUBLIC_RPC_URL || "ask admin"}\` · chainId **88420** · token \`${process.env.CONTRACT_ADDRESS}\``;
       }
-      await context.sendActivity(msg);
+      await replyPrivately(context, msg, "Sent your balance in a DM.");
       return;
     }
 
