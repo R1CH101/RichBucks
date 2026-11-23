@@ -2,6 +2,7 @@
 
 Repository: https://github.com/R1CH101/RichBucks
 
+**Full deploy walkthrough (Coolify, secrets, Teams, contract):** [guide.md](./guide.md)
 
 Private zero-gas [Hyperledger Besu](https://github.com/hyperledger/besu) QBFT chain + **RichBucks (RB)** ERC-20 + Microsoft Teams custodial bot + admin UI.
 
