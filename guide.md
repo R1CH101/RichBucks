@@ -1,4 +1,4 @@
-# RichBucks setup guide
+﻿# RichBucks setup guide
 
 End-to-end guide to deploy RichBucks on a VPS (Coolify), wire Microsoft Teams, deploy the token contract, and optionally onboard coworker nodes.
 
@@ -12,9 +12,9 @@ Repo: https://github.com/R1CH101/RichBucks
 
 | Piece | Example public URL |
 |---|---|
-| Admin UI | `https://admin.richbucks.example` |
-| Teams bot webhook | `https://bot.richbucks.example/api/messages` |
-| Public wallet RPC | `https://rpc.richbucks.example` |
+| Admin UI | `https://admin.richbucks.xyz` |
+| Teams bot webhook | `https://bot.richbucks.xyz/api/messages` |
+| Public wallet RPC | `https://rpc.richbucks.xyz` |
 | 4 Besu validators + bot + admin | Private Docker network on the VPS |
 
 Suggested order:
@@ -48,22 +48,31 @@ cp .env.example .env
 
 ---
 
-## 1. Domains / Coolify routing
+## 1. Domains / Coolify routing (richbucks.xyz)
 
-Create three HTTPS hosts (Coolify “Services” or reverse-proxy labels):
+Domain: **richbucks.xyz** (Cloudflare). Suggested DNS records → VPS IP:
+
+| Hostname | Proxy | Purpose |
+|---|---|---|
+| `admin.richbucks.xyz` | Proxied (orange) | Admin UI HTTPS |
+| `bot.richbucks.xyz` | Proxied (orange) | Teams webhook HTTPS |
+| `rpc.richbucks.xyz` | Proxied (orange) | Public JSON-RPC HTTPS |
+| `p2p.richbucks.xyz` | **DNS only (grey)** | Besu P2P / bootnode — Cloudflare HTTP proxy cannot carry port 30303 |
+
+Coolify / reverse-proxy map:
 
 | Host | Proxies to | Path |
 |---|---|---|
-| `admin.yourdomain` | `admin:3000` | `/` |
-| `bot.yourdomain` | `bot:3978` | `/` (Teams needs `/api/messages`) |
-| `rpc.yourdomain` | `rpc-proxy:80` (compose port `8549:80`) | `/` |
+| `admin.richbucks.xyz` | `admin:3000` | `/` |
+| `bot.richbucks.xyz` | `bot:3978` | `/` (Teams needs `/api/messages`) |
+| `rpc.richbucks.xyz` | `rpc-proxy:80` (compose port `8549:80`) | `/` |
 
-Keep validator RPC (`8545`) **off** the public internet except via `rpc-proxy`.
+Keep validator RPC (`8545`) **off** the public internet except via `rpc-proxy`. Cloudflare SSL: **Full (strict)**.
 
 Set in Coolify / `.env`:
 
 ```env
-PUBLIC_RPC_URL=https://rpc.yourdomain
+PUBLIC_RPC_URL=https://rpc.richbucks.xyz
 ```
 
 ---
@@ -80,7 +89,7 @@ Below: meaning, example shape, and how to generate / obtain each value.
 |---|---|---|
 | `CHAIN_ID` | `88420` | Fixed for RichBucks — leave as-is |
 | `RPC_URL` | `http://validator-1:8545` | Internal Docker DNS. From a laptop tunnel use `http://127.0.0.1:8545` |
-| `PUBLIC_RPC_URL` | `https://rpc.yourdomain` | Your public HTTPS RPC hostname |
+| `PUBLIC_RPC_URL` | `https://rpc.richbucks.xyz` | Your public HTTPS RPC hostname |
 | `BESU_VERSION` | `25.1.0` | Pin; match `chain/docker-compose.yml` |
 | `EMPTY_BLOCK_PERIOD_SECONDS` | `3600` | Prod heartbeat. Dev genesis uses `30` via `init-network.sh dev` |
 | `BOOTNODE_ENODE` | `enode://abc…@validator-1:30303` | After validator-1 is up: `./chain/scripts/print-bootnode.sh` (rewrites host to `validator-1`) |
@@ -164,7 +173,7 @@ If you lose this key, existing custodial wallets in SQLite **cannot** be decrypt
    - Type: Multi Tenant or Single Tenant matching the app  
    - Link the App ID above  
 6. Azure Bot → **Configuration** → **Messaging endpoint**:  
-   `https://bot.yourdomain/api/messages`  
+   `https://bot.richbucks.xyz/api/messages`  
 7. Azure Bot → **Channels** → enable **Microsoft Teams**  
 8. Under the App registration, API permissions typically include what the Bot channel configures; grant admin consent if prompted  
 
@@ -209,7 +218,7 @@ node -e "console.log(require('otplib').authenticator.generateSecret())"
 node -e "console.log(require('bcryptjs').hashSync('YOUR_PASSWORD', 10))"
 ```
 
-Open `https://admin.yourdomain/login`, enter username / password / 6-digit TOTP.
+Open `https://admin.richbucks.xyz/login`, enter username / password / 6-digit TOTP.
 
 ---
 
@@ -218,7 +227,7 @@ Open `https://admin.yourdomain/login`, enter username / password / 6-digit TOTP.
 | Variable | Example | How to get it |
 |---|---|---|
 | `NODE_JOIN_API_KEY` | random token | Shared secret coworkers pass as `Authorization: Bearer …` |
-| `JOIN_URL` | `https://admin.yourdomain/join/config` | Used on **coworker** machines (not the VPS `.env` name for admin) |
+| `JOIN_URL` | `https://admin.richbucks.xyz/join/config` | Used on **coworker** machines (not the VPS `.env` name for admin) |
 | `RPC_API_KEY` | optional | Reserved for path-keyed public RPC; nginx v1 rate-limits without requiring it |
 | `GHCR_OWNER` | `r1ch101` | Lowercase GitHub owner for image names |
 | `TAG` | `latest` | Image tag Coolify pulls |
@@ -234,7 +243,7 @@ openssl rand -hex 24   # NODE_JOIN_API_KEY
 ```env
 CHAIN_ID=88420
 RPC_URL=http://validator-1:8545
-PUBLIC_RPC_URL=https://rpc.yourdomain
+PUBLIC_RPC_URL=https://rpc.richbucks.xyz
 BESU_VERSION=25.1.0
 
 DEPLOYER_PRIVATE_KEY=0x1111111111111111111111111111111111111111111111111111111111111111
@@ -414,7 +423,7 @@ On their machine:
 cd chain/coworker
 cat > .env <<EOF
 JOIN_API_KEY=<same as NODE_JOIN_API_KEY>
-JOIN_URL=https://admin.yourdomain/join/config
+JOIN_URL=https://admin.richbucks.xyz/join/config
 BOOTNODE_ENODE=<publicly reachable enode or VPN enode>
 GHCR_OWNER=r1ch101
 TAG=latest
@@ -442,7 +451,7 @@ RPC-only nodes sync but do **not** earn proposer RB.
 
 1. Admin: set `SHOW_METAMASK_CARD=true`, restart bot  
 2. Network:  
-   - RPC URL: `https://rpc.yourdomain`  
+   - RPC URL: `https://rpc.richbucks.xyz`  
    - Chain ID: `88420`  
    - Currency symbol: `GAS` (native; still free)  
 3. Import token: `CONTRACT_ADDRESS`, symbol `RB`, **0 decimals**  
