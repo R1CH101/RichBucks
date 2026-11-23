@@ -2,12 +2,22 @@
  * Public JSON-RPC gateway — allowlist ETH/NET/WEB3 only (no QBFT/admin/debug).
  */
 const express = require("express");
+const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8549);
 const UPSTREAM = process.env.UPSTREAM_RPC || "http://validator-1:8545";
 const API_KEY = process.env.RPC_API_KEY || "";
+const REQUIRE_KEY =
+  process.env.RPC_REQUIRE_API_KEY === "true" ||
+  process.env.NODE_ENV === "production" ||
+  process.env.RICHBUCKS_REQUIRE_SECRETS === "true";
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = Number(process.env.RPC_RATE_MAX || 120);
+
+if (REQUIRE_KEY && (!API_KEY || API_KEY.length < 16)) {
+  console.error("RPC_API_KEY required (min 16 chars) when RPC_REQUIRE_API_KEY/production is set");
+  process.exit(1);
+}
 
 const ALLOWED = new Set([
   "eth_blockNumber",
@@ -53,6 +63,25 @@ function methodsOf(body) {
   return list.map((x) => (x && typeof x.method === "string" ? x.method : ""));
 }
 
+function timingSafeEqualStr(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+function apiKeyOk(req) {
+  if (!API_KEY) return !REQUIRE_KEY;
+  const hdr = req.header("x-api-key") || "";
+  const auth = (req.header("authorization") || "").replace(/^Bearer\s+/i, "");
+  const pathKey = (req.query.key || "").toString();
+  return (
+    timingSafeEqualStr(hdr, API_KEY) ||
+    timingSafeEqualStr(auth, API_KEY) ||
+    timingSafeEqualStr(pathKey, API_KEY)
+  );
+}
+
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
@@ -65,13 +94,8 @@ app.post("/", async (req, res) => {
     return res.status(429).json({ jsonrpc: "2.0", error: { code: -32000, message: "rate limited" }, id: null });
   }
 
-  if (API_KEY) {
-    const hdr = req.header("x-api-key") || "";
-    const auth = (req.header("authorization") || "").replace(/^Bearer\s+/i, "");
-    const pathKey = (req.query.key || "").toString();
-    if (hdr !== API_KEY && auth !== API_KEY && pathKey !== API_KEY) {
-      return res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "unauthorized" }, id: null });
-    }
+  if (!apiKeyOk(req)) {
+    return res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "unauthorized" }, id: null });
   }
 
   const methods = methodsOf(req.body);
@@ -100,5 +124,7 @@ app.post("/", async (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`rpc-filter on ${PORT} → ${UPSTREAM} (allowlist ETH/NET/WEB3)`);
+  console.log(
+    `rpc-filter on ${PORT} → ${UPSTREAM} (allowlist ETH/NET/WEB3, apiKey=${API_KEY ? "required" : "off"})`
+  );
 });

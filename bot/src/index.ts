@@ -49,15 +49,10 @@ const walletKey = process.env.WALLET_ENCRYPTION_KEY || "dev-only-change-me-local
 assertWalletKeyStrength(walletKey);
 const store = new WalletStore(process.env.WALLET_DB_PATH || "./data/wallets.sqlite", walletKey);
 
-const minterKey =
-  process.env.WELCOME_MINTER_PRIVATE_KEY ||
-  process.env.DEPLOYER_PRIVATE_KEY ||
-  "0x" + "11".repeat(32);
-
-if (!process.env.WELCOME_MINTER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY) {
-  console.warn(
-    "WARNING: bot is using DEPLOYER_PRIVATE_KEY for welcome mints. Set WELCOME_MINTER_PRIVATE_KEY and call setWelcomeMinter()."
-  );
+const minterKey = process.env.WELCOME_MINTER_PRIVATE_KEY || "0x" + "11".repeat(32);
+if (isProduction() && !process.env.WELCOME_MINTER_PRIVATE_KEY) {
+  console.error("WELCOME_MINTER_PRIVATE_KEY required in production");
+  process.exit(1);
 }
 
 const chain = new ChainClient(
@@ -72,9 +67,12 @@ const HELP = [
   "`/give @Name [reason]` — tip **1 RB** once per day (minted; group or DM)",
   "`/send @Name <whole amount>` — transfer RB you hold (group or DM)",
   "`/leaderboard` — top tippers / earners / proposers (group or DM)",
-  "`/export-wallet` — **DM only**: export private key for MetaMask",
+  "`/export-wallet CONFIRM` — **DM only**: export private key (once/hour)",
   "`/help` — this list",
 ].join("\n");
+
+const exportHits = new Map<string, number>();
+const EXPORT_COOLDOWN_MS = 60 * 60 * 1000;
 
 function isGroupConversation(context: TurnContext): boolean {
   const t = context.activity.conversation?.conversationType;
@@ -194,7 +192,7 @@ async function handleMessage(context: TurnContext) {
     const tenantId =
       context.activity.conversation?.tenantId ||
       (context.activity.channelData as { tenant?: { id?: string } })?.tenant?.id;
-    if (tenantId && tenantId !== expectedTenant) {
+    if (!tenantId || tenantId !== expectedTenant) {
       await context.sendActivity("This RichBucks bot is not enabled for your organisation.");
       return;
     }
@@ -296,9 +294,22 @@ async function handleMessage(context: TurnContext) {
     case "export-wallet": {
       const conv = context.activity.conversation;
       if (conv.conversationType === "groupChat" || conv.conversationType === "channel") {
-        await context.sendActivity("For safety, run `/export-wallet` in a **1:1 chat** with the bot.");
+        await context.sendActivity("For safety, run `/export-wallet CONFIRM` in a **1:1 chat** with the bot.");
         return;
       }
+      if (!cmd.confirmed) {
+        await context.sendActivity(
+          "Exporting your private key is irreversible risk if anyone else sees this chat.\n\n" +
+            "Reply with **`/export-wallet CONFIRM`** to proceed (limited to once per hour)."
+        );
+        return;
+      }
+      const last = exportHits.get(me.teamsId) || 0;
+      if (Date.now() - last < EXPORT_COOLDOWN_MS) {
+        await context.sendActivity("Export cooldown: try again in an hour.");
+        return;
+      }
+      exportHits.set(me.teamsId, Date.now());
       const key = store.getSignerKey(me.teamsId);
       await context.sendActivity(
         MessageFactory.attachment(
@@ -309,13 +320,14 @@ async function handleMessage(context: TurnContext) {
             body: [
               {
                 type: "TextBlock",
-                text: "Export private key",
+                text: "⚠ Private key — delete this message after importing",
                 weight: "Bolder",
                 size: "Medium",
+                color: "Attention",
               },
               {
                 type: "TextBlock",
-                text: "Anyone with this key controls your RB. Import into MetaMask carefully.",
+                text: "Anyone with this key controls your RB. Import into MetaMask, then delete this chat message.",
                 wrap: true,
               },
               {

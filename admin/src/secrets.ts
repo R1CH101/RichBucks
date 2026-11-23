@@ -24,10 +24,13 @@ export function assertAdminSecrets(): void {
 
   bad("SESSION_SECRET", process.env.SESSION_SECRET, 32);
   bad("ADMIN_TOTP_SECRET", process.env.ADMIN_TOTP_SECRET, 16);
-  bad("NODE_JOIN_API_KEY", process.env.NODE_JOIN_API_KEY, 24);
   bad("DEPLOYER_PRIVATE_KEY", process.env.DEPLOYER_PRIVATE_KEY, 64);
   bad("CONTRACT_ADDRESS", process.env.CONTRACT_ADDRESS, 42);
   bad("RPC_URL", process.env.RPC_URL, 8);
+  bad("ADMIN_ALLOWED_IPS", process.env.ADMIN_ALLOWED_IPS, 7);
+  if (process.env.JOIN_ENABLED === "true") {
+    bad("NODE_JOIN_API_KEY", process.env.NODE_JOIN_API_KEY, 24);
+  }
 
   if (!process.env.ADMIN_PASSWORD_HASH && PLACEHOLDERS.has(process.env.ADMIN_PASSWORD || "change-me")) {
     missing.push("ADMIN_PASSWORD_HASH or strong ADMIN_PASSWORD");

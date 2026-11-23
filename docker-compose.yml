@@ -21,6 +21,12 @@ services:
       RPC_URL: http://validator-1:8545
       WALLET_DB_PATH: /data/wallets.sqlite
       BOT_PORT: 3978
+      # Never inject contract owner into the bot (overrides env_file)
+      DEPLOYER_PRIVATE_KEY: ""
+      ADMIN_PASSWORD: ""
+      ADMIN_PASSWORD_HASH: ""
+      ADMIN_TOTP_SECRET: ""
+      SESSION_SECRET: ""
     volumes:
       - bot-wallets:/data
     expose:

@@ -2,11 +2,17 @@
 set -euo pipefail
 
 : "${JOIN_API_KEY:?JOIN_API_KEY is required}"
-: "${JOIN_URL:?JOIN_URL is required (e.g. https://join.richbucks.example/config)}"
+: "${JOIN_URL:?JOIN_URL is required (e.g. https://admin.richbucks.xyz/join/config)}"
 : "${BOOTNODE_ENODE:?BOOTNODE_ENODE is required}"
 
 DATA_DIR="${DATA_DIR:-/data}"
 GENESIS_PATH="${GENESIS_PATH:-/data/genesis.json}"
+# RPC stays loopback-only inside the container (docker maps 127.0.0.1:8545 on host).
+RPC_HTTP_HOST="${RPC_HTTP_HOST:-127.0.0.1}"
+HOST_ALLOWLIST="${HOST_ALLOWLIST:-localhost,127.0.0.1}"
+# P2P listen — keep on 0.0.0.0 for VPN; do NOT publish 30303 on a public firewall.
+P2P_HOST="${P2P_HOST:-0.0.0.0}"
+
 mkdir -p "$DATA_DIR"
 
 echo "Fetching network config..."
@@ -45,12 +51,12 @@ exec besu \
   --bootnodes="$BOOTS" \
   --min-gas-price=0 \
   --rpc-http-enabled \
-  --rpc-http-host=0.0.0.0 \
+  --rpc-http-host="$RPC_HTTP_HOST" \
   --rpc-http-port=8545 \
   --rpc-http-api=ETH,NET,WEB3 \
-  --host-allowlist=* \
+  --host-allowlist="$HOST_ALLOWLIST" \
   --p2p-port=30303 \
-  --p2p-host=0.0.0.0 \
+  --p2p-host="$P2P_HOST" \
   --nat-method=NONE \
   --profile=ENTERPRISE \
   "$@"

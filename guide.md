@@ -205,6 +205,8 @@ If you lose this key, existing custodial wallets in SQLite **cannot** be decrypt
 | `ADMIN_PASSWORD_HASH` | `$2a$10$…` | Optional bcrypt hash; if set, used instead of plain password |
 | `ADMIN_TOTP_SECRET` | Base32 e.g. `JBSWY3DPEHPK3PXP` | 2FA secret for Google Authenticator / Authy |
 | `SESSION_SECRET` | long random | Signs admin cookies |
+| `ADMIN_ALLOWED_IPS` | `203.0.113.10,10.0.0.0/8` | **Required in production.** Comma-separated IPs/CIDRs; others get 403. Loopback `/health` still works for Coolify. |
+| `ADMIN_TRUST_CLOUDFLARE` | `true` | Use `CF-Connecting-IP` for allowlisting when orange-cloud is on |
 | `SHOW_METAMASK_CARD` | `false` | `true` adds RPC/token hint on `/balance` DMs; toggle via Coolify + bot restart |
 | `COOKIE_SECURE` | `true` | Set `true` behind HTTPS |
 | `GENESIS_PATH` | `/config/genesis.json` | Set in compose for `/join/config` |
@@ -225,15 +227,19 @@ node -e "console.log(require('bcryptjs').hashSync('YOUR_PASSWORD', 10))"
 
 Open `https://admin.richbucks.xyz/login`, enter username / password / 6-digit TOTP.
 
+**IP allowlist:** set `ADMIN_ALLOWED_IPS` to your office/home public IP(s) or CIDRs. Requests from elsewhere get HTTP 403 before login. Coolify container healthchecks to `127.0.0.1` still work. With Cloudflare orange-cloud, set `ADMIN_TRUST_CLOUDFLARE=true` so allowlisting uses `CF-Connecting-IP` (your real browser IP). Do not enable that flag if traffic does not go through Cloudflare — clients could spoof the header.
+
 ---
 
 ### 2.6 Coworker node join + RPC
 
 | Variable | Example | How to get it |
 |---|---|---|
-| `NODE_JOIN_API_KEY` | random token | Shared secret coworkers pass as `Authorization: Bearer …` |
+| `JOIN_ENABLED` | `false` | Set `true` only when onboarding coworker nodes (v1.1 / VPN) |
+| `NODE_JOIN_API_KEY` | random token | Required when `JOIN_ENABLED=true`. Bearer secret for `/join/config` |
 | `JOIN_URL` | `https://admin.richbucks.xyz/join/config` | Used on **coworker** machines (not the VPS `.env` name for admin) |
-| `RPC_API_KEY` | optional | Reserved for path-keyed public RPC; nginx v1 rate-limits without requiring it |
+| `RPC_API_KEY` | `openssl rand -hex 24` | **Required in production.** Public rpc-filter rejects requests without `x-api-key` / Bearer / `?key=` |
+| `RPC_REQUIRE_API_KEY` | `true` | Default true in compose; set false only for local experiments |
 | `GHCR_OWNER` | `r1ch101` | Lowercase GitHub owner for image names |
 | `TAG` | `latest` | Image tag Coolify pulls |
 
@@ -267,9 +273,14 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=use-a-long-unique-password
 ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP
 SESSION_SECRET=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+ADMIN_ALLOWED_IPS=203.0.113.10
+ADMIN_TRUST_CLOUDFLARE=true
+RPC_API_KEY=replace-with-openssl-rand-hex-24
+WELCOME_MINTER_PRIVATE_KEY=0x2222222222222222222222222222222222222222222222222222222222222222
 SHOW_METAMASK_CARD=false
 COOKIE_SECURE=true
 
+JOIN_ENABLED=false
 NODE_JOIN_API_KEY=coworker-join-token-change-me
 BOOTNODE_ENODE=enode://abcd…@validator-1:30303
 
@@ -380,7 +391,7 @@ In a **1:1** chat with RichBucks:
 |---|---|
 | `/help` | Command list |
 | `/balance` | Balance + address (DM) |
-| `/export-wallet` | Adaptive card with private key |
+| `/export-wallet CONFIRM` | DM-only; confirmation + 1/hour cooldown; adaptive card with private key |
 
 In the **group** chat:
 
@@ -426,14 +437,18 @@ Package visibility: GitHub → Packages → each image → allow public pull if 
 
 On their machine:
 
+On the **VPS** admin `.env`, set `JOIN_ENABLED=true` and a strong `NODE_JOIN_API_KEY`, then restart admin.
+
 ```bash
 cd chain/coworker
 cat > .env <<EOF
 JOIN_API_KEY=<same as NODE_JOIN_API_KEY>
 JOIN_URL=https://admin.richbucks.xyz/join/config
-BOOTNODE_ENODE=<publicly reachable enode or VPN enode>
+BOOTNODE_ENODE=<VPN enode — never a public VPS IP in v1>
 GHCR_OWNER=r1ch101
 TAG=latest
+# Bind P2P to your Tailscale/WireGuard IP (required for peering)
+COWORKER_P2P_BIND=100.x.x.x
 EOF
 docker compose up -d
 ```
@@ -441,7 +456,10 @@ docker compose up -d
 Notes:
 
 - Image aims for **≤1 GB RAM** (`-Xmx512m`)  
-- Node must reach your bootnode (VPN, public P2P port, or Magic Container later)  
+- RPC is **127.0.0.1 only** (SSH tunnel / local MetaMask); host-allowlist is localhost  
+- P2P defaults to host loopback — set `COWORKER_P2P_BIND` to the VPN address; do **not** publish 30303 on the public internet  
+- Node must reach your bootnode over VPN  
+
 - To **earn tip proposer rewards**, vote them in:
 
 ```bash
@@ -495,7 +513,9 @@ RPC-only nodes sync but do **not** earn proposer RB.
 
 - Public repo is fine; **secrets and `chain/network/` keys are not**  
 - Do not expose QBFT admin RPC on the public internet  
-- `/export-wallet` is DM-only by design  
+- `/export-wallet CONFIRM` is DM-only, confirmation required, once per hour  
+- Coworker RPC binds loopback only; P2P defaults to `127.0.0.1` — set `COWORKER_P2P_BIND` to your VPN IP when ready  
+
 - Rotate Teams client secret periodically in Entra  
 - AGPL-3.0: if you modify and offer the service, publish corresponding source  
 

@@ -1,4 +1,5 @@
-# Colleague node — just works (≤1GB RAM)
+# Colleague node — VPN / private network only (≤1GB RAM)
+# RPC is loopback-only. Do not open 30303 on a public firewall — use Tailscale/WireGuard.
 # docker compose --env-file .env up -d
 services:
   coworker-node:
@@ -11,11 +12,15 @@ services:
       JOIN_API_KEY: ${JOIN_API_KEY}
       JOIN_URL: ${JOIN_URL}
       BOOTNODE_ENODE: ${BOOTNODE_ENODE}
+      RPC_HTTP_HOST: 127.0.0.1
+      HOST_ALLOWLIST: localhost,127.0.0.1
     volumes:
       - coworker-data:/data
     ports:
-      - "8545:8545"
-      - "30303:30303"
+      # MetaMask / local tools via SSH tunnel only — never 0.0.0.0
+      - "127.0.0.1:8545:8545"
+      # P2P: bind host loopback by default. For VPN, set COWORKER_P2P_BIND to the VPN IP, e.g. 100.x.x.x
+      - "${COWORKER_P2P_BIND:-127.0.0.1}:30303:30303"
     restart: unless-stopped
 
 volumes:

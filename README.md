@@ -16,7 +16,7 @@ License: [AGPL-3.0-only](./LICENSE). Commercial use is allowed; modified version
 |---|---|
 | `chain/` | 4-validator Besu QBFT (chainId **88420**), public RPC proxy, coworker node image |
 | `contracts/` | UUPS upgradeable RB token (0 decimals, unlimited supply by default, daily tip + proposer mint) |
-| `bot/` | Teams bot: `/give` `/send` `/balance` `/leaderboard` `/export-wallet` |
+| `bot/` | Teams bot: `/give` `/send` `/balance` `/leaderboard` `/export-wallet CONFIRM` |
 | `admin/` | Username/password + TOTP 2FA admin (mint, params, join config) |
 
 ## Quick start (local)
@@ -96,4 +96,5 @@ Public/coworker P2P is **off in v1** (no open 30303; use VPN later). Company val
 
 - Do not commit `chain/network/` keys, `.env`, or wallet SQLite  
 - Keep validator QBFT RPC on the private Docker network; public RPC is rate-limited nginx → validator-1  
-- `/export-wallet` is DM-only  
+- `/export-wallet CONFIRM` is DM-only (confirmation + hourly cooldown)  
+

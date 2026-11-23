@@ -8,6 +8,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { assertAdminSecrets, isProduction } from "./secrets";
+import { clientIp, ipAllowed, isLoopback, parseAllowlist } from "./ipAllowlist";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
@@ -29,6 +30,13 @@ const joinApiKey = process.env.NODE_JOIN_API_KEY || "";
 const cookieSecure =
   process.env.COOKIE_SECURE === "true" ||
   (isProduction() && process.env.COOKIE_SECURE !== "false");
+const allowedIps = parseAllowlist(process.env.ADMIN_ALLOWED_IPS);
+if (isProduction() && allowedIps.length === 0) {
+  console.error(
+    "ADMIN_ALLOWED_IPS is required in production (comma-separated IPs/CIDRs, e.g. 203.0.113.10,10.0.0.0/8)"
+  );
+  process.exit(1);
+}
 
 const ABI = [
   "function totalSupply() view returns (uint256)",
@@ -107,21 +115,6 @@ const app = express();
 app.set("trust proxy", 1);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(
-  session({
-    name: "rb_admin",
-    keys: [sessionSecret],
-    maxAge: 12 * 60 * 60 * 1000,
-    httpOnly: true,
-    sameSite: "strict",
-    secure: cookieSecure,
-  })
-);
-
-function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-  if ((req.session as { authed?: boolean })?.authed) return next();
-  return res.redirect("/login");
-}
 
 function layout(title: string, body: string) {
   return `<!doctype html>
@@ -150,6 +143,32 @@ ${body}
 </main></body></html>`;
 }
 
+/** Block non-allowlisted clients before session/login (loopback /health exempt for Coolify). */
+app.use((req, res, next) => {
+  if (allowedIps.length === 0) return next(); // dev: unrestricted
+  const ip = clientIp(req);
+  if (req.path === "/health" && isLoopback(req.ip || ip)) return next();
+  if (ipAllowed(ip, allowedIps)) return next();
+  console.warn(`admin IP denied: ${ip} ${req.method} ${req.path}`);
+  return res.status(403).send(layout("Forbidden", `<p class="err">Access denied from this network.</p>`));
+});
+
+app.use(
+  session({
+    name: "rb_admin",
+    keys: [sessionSecret],
+    maxAge: 12 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: "strict",
+    secure: cookieSecure,
+  })
+);
+
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if ((req.session as { authed?: boolean })?.authed) return next();
+  return res.redirect("/login");
+}
+
 app.get("/health", (_req, res) => res.send("ok"));
 
 app.get("/login", (req, res) => {
@@ -172,7 +191,7 @@ app.get("/login", (req, res) => {
 });
 
 app.post("/login", requireCsrf, (req, res) => {
-  const ip = req.ip || "unknown";
+  const ip = clientIp(req) || "unknown";
   if (!rateLimitLogin(ip)) {
     return res
       .status(429)
@@ -193,9 +212,13 @@ app.post("/login", requireCsrf, (req, res) => {
         )
       );
   }
-  // Regenerate CSRF + mark authed
-  (req.session as { authed?: boolean; csrf?: string }).csrf = crypto.randomBytes(24).toString("hex");
-  (req.session as { authed?: boolean }).authed = true;
+  // Rotate session payload on login (new CSRF + auth flag)
+  const s = req.session as { authed?: boolean; csrf?: string } | null;
+  if (s) {
+    for (const k of Object.keys(s)) delete (s as Record<string, unknown>)[k];
+    s.authed = true;
+    s.csrf = crypto.randomBytes(24).toString("hex");
+  }
   res.redirect("/");
 });
 
@@ -327,6 +350,8 @@ app.post("/mint", requireAuth, requireCsrf, async (req, res) => {
 });
 
 const joinHits = new Map<string, { count: number; start: number }>();
+const joinFailHits = new Map<string, { count: number; start: number }>();
+const joinEnabled = process.env.JOIN_ENABLED === "true";
 
 function timingSafeEqualStr(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -335,37 +360,62 @@ function timingSafeEqualStr(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ba, bb);
 }
 
-/** Coworker node join — genesis + bootnodes behind API key (v1.1 / VPN). */
-app.get("/join/config", (req, res) => {
-  const ip = req.ip || "unknown";
+function rateBucket(
+  map: Map<string, { count: number; start: number }>,
+  key: string,
+  windowMs: number,
+  max: number
+): boolean {
   const now = Date.now();
-  let bucket = joinHits.get(ip);
-  if (!bucket || now - bucket.start > 60_000) {
+  let bucket = map.get(key);
+  if (!bucket || now - bucket.start > windowMs) {
     bucket = { start: now, count: 0 };
-    joinHits.set(ip, bucket);
+    map.set(key, bucket);
   }
   bucket.count += 1;
-  if (bucket.count > 30) return res.status(429).json({ error: "rate limited" });
+  return bucket.count <= max;
+}
 
+/**
+ * Coworker node join — genesis + bootnodes.
+ * Disabled unless JOIN_ENABLED=true. Still behind ADMIN_ALLOWED_IPS + Bearer key.
+ * Stricter rate limits; failed auth counts separately to slow brute force.
+ */
+app.get("/join/config", (req, res) => {
+  if (!joinEnabled) return res.status(503).json({ error: "join disabled" });
   if (!joinApiKey) return res.status(503).json({ error: "join disabled" });
+
+  const ip = clientIp(req) || "unknown";
+  if (!rateBucket(joinHits, ip, 60_000, 5)) {
+    return res.status(429).json({ error: "rate limited" });
+  }
+
   const auth = req.header("authorization") || "";
   const key = auth.replace(/^Bearer\s+/i, "");
   if (!key || !timingSafeEqualStr(key, joinApiKey)) {
+    if (!rateBucket(joinFailHits, ip, 15 * 60_000, 10)) {
+      return res.status(429).json({ error: "rate limited" });
+    }
     return res.status(401).json({ error: "unauthorized" });
   }
+
   const genesisPath =
     process.env.GENESIS_PATH || path.join(__dirname, "../../chain/network/genesis.json");
   if (!fs.existsSync(genesisPath)) {
     return res.status(503).json({ error: "genesis not available on this host" });
   }
   const genesis = JSON.parse(fs.readFileSync(genesisPath, "utf8"));
+  // Return only what a node needs — no extra host metadata
   const bootnodes = (process.env.BOOTNODE_ENODE || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  res.setHeader("Cache-Control", "no-store");
   res.json({ genesis, bootnodes });
 });
 
 app.listen(port, () => {
-  console.log(`RichBucks admin on ${port} (secureCookie=${cookieSecure})`);
+  console.log(
+    `RichBucks admin on ${port} (secureCookie=${cookieSecure}, ipAllowlist=${allowedIps.length ? allowedIps.length + " rules" : "off"})`
+  );
 });

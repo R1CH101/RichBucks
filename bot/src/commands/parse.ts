@@ -4,7 +4,7 @@ export type ParsedCommand =
   | { type: "give"; mentionName?: string; mentionId?: string; reason: string }
   | { type: "send"; mentionName?: string; mentionId?: string; amount: string }
   | { type: "leaderboard" }
-  | { type: "export-wallet" }
+  | { type: "export-wallet"; confirmed: boolean }
   | { type: "unknown"; raw: string };
 
 export function parseCommand(text: string): ParsedCommand {
@@ -18,7 +18,8 @@ export function parseCommand(text: string): ParsedCommand {
   if (lower === "balance" || lower.startsWith("/balance")) return { type: "balance" };
   if (lower === "leaderboard" || lower.startsWith("/leaderboard")) return { type: "leaderboard" };
   if (lower.startsWith("export-wallet") || lower.startsWith("/export-wallet")) {
-    return { type: "export-wallet" };
+    const confirmed = /\bconfirm\b/i.test(cleaned);
+    return { type: "export-wallet", confirmed };
   }
 
   const give = cleaned.match(/^\/?give(?:\s+(.*))?$/i);
