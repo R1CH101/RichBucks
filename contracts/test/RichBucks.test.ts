@@ -71,6 +71,14 @@ describe("RichBucks", () => {
     );
   });
 
+  it("welcomeMinter can mintWelcome but not mintAdmin", async () => {
+    const { token, owner, alice, bob } = await deploy();
+    await token.connect(owner).setWelcomeMinter(bob.address);
+    await token.connect(bob).mintWelcome(alice.address);
+    expect(await token.balanceOf(alice.address)).to.equal(10n);
+    await expect(token.connect(bob).mintAdmin(alice.address, 1n)).to.be.reverted;
+  });
+
   it("transfers are free whole numbers (no fee path)", async () => {
     const { token, treasury, alice } = await deploy();
     await token.connect(treasury).transfer(alice.address, 100n);

@@ -1,7 +1,10 @@
 # Coolify / VPS all-in-one stack
 # 1) cd chain && ./scripts/init-network.sh prod
-# 2) Set BOOTNODE_ENODE after validator-1 first start (see README)
-# 3) Deploy this compose with env from .env.example
+# 2) Set BOOTNODE_ENODE after validator-1 first start (see guide.md)
+# 3) Deploy with real secrets (NODE_ENV=production fails closed if placeholders remain)
+#
+# Validators are not host-published. Public RPC = rpc-filter:8549 (ETH/NET/WEB3 only).
+# Bot/admin: expose only on Docker network — point Coolify proxy at service:port.
 
 include:
   - path: chain/docker-compose.yml
@@ -13,13 +16,15 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      NODE_ENV: production
+      RICHBUCKS_REQUIRE_SECRETS: "true"
       RPC_URL: http://validator-1:8545
       WALLET_DB_PATH: /data/wallets.sqlite
       BOT_PORT: 3978
     volumes:
       - bot-wallets:/data
-    ports:
-      - "3978:3978"
+    expose:
+      - "3978"
     depends_on:
       validator-1:
         condition: service_healthy
@@ -37,13 +42,16 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      NODE_ENV: production
+      RICHBUCKS_REQUIRE_SECRETS: "true"
+      COOKIE_SECURE: "true"
       RPC_URL: http://validator-1:8545
       ADMIN_PORT: 3000
       GENESIS_PATH: /config/genesis.json
     volumes:
       - ./chain/network/genesis.json:/config/genesis.json:ro
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
       validator-1:
         condition: service_healthy

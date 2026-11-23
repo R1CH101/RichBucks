@@ -1,6 +1,7 @@
-# Production / Coolify stack — 4 QBFT validators + public RPC proxy
+# Production / Coolify stack — 4 QBFT validators + filtered public RPC
 # Prerequisites: ./scripts/init-network.sh prod  (generates ./network/)
-# Env: BESU_VERSION (default 25.1.0)
+# Validators are NOT published on the host (internal Docker network only).
+# Public MetaMask/RPC traffic goes through rpc-filter (ETH/NET/WEB3 allowlist).
 
 x-besu-common: &besu-common
   image: hyperledger/besu:${BESU_VERSION:-25.1.0}
@@ -25,11 +26,9 @@ services:
       - --rpc-http-host=0.0.0.0
       - --rpc-http-port=8545
       - --rpc-http-api=ETH,NET,WEB3,QBFT
-      - --rpc-http-cors-origins=all
-      - --host-allowlist=*
-      - --rpc-ws-enabled
-      - --rpc-ws-host=0.0.0.0
-      - --rpc-ws-port=8546
+      - --rpc-http-cors-origins=none
+      - --host-allowlist=validator-1,rpc-filter,bot,admin,localhost,127.0.0.1
+      - --rpc-ws-enabled=false
       - --p2p-port=30303
       - --p2p-host=0.0.0.0
       - --nat-method=NONE
@@ -37,10 +36,9 @@ services:
     volumes:
       - ./network/genesis.json:/config/genesis.json:ro
       - ./network/validator-1/data:/data
-    ports:
-      - "8545:8545"
-      - "8546:8546"
-      - "30303:30303"
+    expose:
+      - "8545"
+      - "30303"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' http://127.0.0.1:8545 || exit 1"]
       interval: 10s
@@ -65,7 +63,7 @@ services:
       - --rpc-http-host=0.0.0.0
       - --rpc-http-port=8545
       - --rpc-http-api=ETH,NET,WEB3,QBFT
-      - --host-allowlist=*
+      - --host-allowlist=validator-2,localhost,127.0.0.1
       - --nat-method=NONE
       - --profile=ENTERPRISE
     volumes:
@@ -92,7 +90,7 @@ services:
       - --rpc-http-host=0.0.0.0
       - --rpc-http-port=8545
       - --rpc-http-api=ETH,NET,WEB3,QBFT
-      - --host-allowlist=*
+      - --host-allowlist=validator-3,localhost,127.0.0.1
       - --nat-method=NONE
       - --profile=ENTERPRISE
     volumes:
@@ -119,7 +117,7 @@ services:
       - --rpc-http-host=0.0.0.0
       - --rpc-http-port=8545
       - --rpc-http-api=ETH,NET,WEB3,QBFT
-      - --host-allowlist=*
+      - --host-allowlist=validator-4,localhost,127.0.0.1
       - --nat-method=NONE
       - --profile=ENTERPRISE
     volumes:
@@ -128,21 +126,26 @@ services:
     expose:
       - "8545"
 
-  # Public wallet RPC — ETH/NET/WEB3 only (nginx strips path API key optionally)
-  rpc-proxy:
-    image: nginx:1.27-alpine
-    container_name: rb-rpc-proxy
+  # Public wallet RPC — method allowlist (no QBFT/admin)
+  rpc-filter:
+    build: ./rpc-filter
+    image: ghcr.io/${GHCR_OWNER:-richbucks}/rpc-filter:${TAG:-latest}
+    container_name: rb-rpc-filter
+    restart: unless-stopped
     depends_on:
       validator-1:
         condition: service_healthy
-    volumes:
-      - ./rpc-nginx.conf:/etc/nginx/nginx.conf:ro
+    environment:
+      PORT: 8549
+      UPSTREAM_RPC: http://validator-1:8545
+      RPC_API_KEY: ${RPC_API_KEY:-}
+      RPC_RATE_MAX: ${RPC_RATE_MAX:-120}
     ports:
-      - "8549:80"
+      - "8549:8549"
     networks:
       - richbucks
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8549/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 6

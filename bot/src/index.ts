@@ -11,18 +11,27 @@ import * as dotenv from "dotenv";
 import { WalletStore } from "./walletStore";
 import { ChainClient, parseWholeRb } from "./chainClient";
 import { parseCommand } from "./commands/parse";
+import { assertBotSecrets, assertWalletKeyStrength, isProduction } from "./secrets";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
 
+assertBotSecrets();
+
 const port = Number(process.env.BOT_PORT || 3978);
 const showMetamask = process.env.SHOW_METAMASK_CARD === "true";
+const expectedTenant = process.env.MICROSOFT_APP_TENANT_ID || "";
+
+if (isProduction() && !expectedTenant) {
+  console.error("MICROSOFT_APP_TENANT_ID required in production (single-tenant only)");
+  process.exit(1);
+}
 
 const credentialsFactory = new ConfigurationServiceClientCredentialFactory({
   MicrosoftAppId: process.env.MICROSOFT_APP_ID || "",
   MicrosoftAppPassword: process.env.MICROSOFT_APP_PASSWORD || "",
-  MicrosoftAppType: process.env.MICROSOFT_APP_TENANT_ID ? "SingleTenant" : "MultiTenant",
-  MicrosoftAppTenantId: process.env.MICROSOFT_APP_TENANT_ID,
+  MicrosoftAppType: "SingleTenant",
+  MicrosoftAppTenantId: expectedTenant || "common",
 });
 
 const botFrameworkAuthentication = new ConfigurationBotFrameworkAuthentication(
@@ -36,19 +45,25 @@ adapter.onTurnError = async (context, error) => {
   await context.sendActivity("Something went wrong with RichBucks. Try again in a moment.");
 };
 
-const store = new WalletStore(
-  process.env.WALLET_DB_PATH || "./data/wallets.sqlite",
-  process.env.WALLET_ENCRYPTION_KEY || "dev-only-change-me"
-);
+const walletKey = process.env.WALLET_ENCRYPTION_KEY || "dev-only-change-me-local-not-prod!!";
+assertWalletKeyStrength(walletKey);
+const store = new WalletStore(process.env.WALLET_DB_PATH || "./data/wallets.sqlite", walletKey);
 
-if (!process.env.RPC_URL || !process.env.CONTRACT_ADDRESS || !process.env.DEPLOYER_PRIVATE_KEY) {
-  console.warn("RPC_URL / CONTRACT_ADDRESS / DEPLOYER_PRIVATE_KEY not fully set — chain calls will fail until configured.");
+const minterKey =
+  process.env.WELCOME_MINTER_PRIVATE_KEY ||
+  process.env.DEPLOYER_PRIVATE_KEY ||
+  "0x" + "11".repeat(32);
+
+if (!process.env.WELCOME_MINTER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY) {
+  console.warn(
+    "WARNING: bot is using DEPLOYER_PRIVATE_KEY for welcome mints. Set WELCOME_MINTER_PRIVATE_KEY and call setWelcomeMinter()."
+  );
 }
 
 const chain = new ChainClient(
   process.env.RPC_URL || "http://127.0.0.1:8545",
   process.env.CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000001",
-  process.env.DEPLOYER_PRIVATE_KEY || "0x" + "11".repeat(32)
+  minterKey
 );
 
 const HELP = [
@@ -174,6 +189,16 @@ async function handleMessage(context: TurnContext) {
   if (context.activity.type !== "message") return;
   const text = (context.activity.text || "").trim();
   if (!text) return;
+
+  if (expectedTenant) {
+    const tenantId =
+      context.activity.conversation?.tenantId ||
+      (context.activity.channelData as { tenant?: { id?: string } })?.tenant?.id;
+    if (tenantId && tenantId !== expectedTenant) {
+      await context.sendActivity("This RichBucks bot is not enabled for your organisation.");
+      return;
+    }
+  }
 
   const me = await ensureUser(context);
   const cmd = parseCommand(text);

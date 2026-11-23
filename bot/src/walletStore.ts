@@ -19,6 +19,9 @@ export class WalletStore {
   private key: Buffer;
 
   constructor(dbPath: string, encryptionSecret: string) {
+    if (!encryptionSecret || encryptionSecret.length < 32) {
+      throw new Error("WALLET_ENCRYPTION_KEY must be at least 32 characters");
+    }
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.key = deriveKey(encryptionSecret);

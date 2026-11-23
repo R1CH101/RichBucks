@@ -16,17 +16,20 @@ const ABI = [
 export class ChainClient {
   readonly provider: JsonRpcProvider;
   readonly token: Contract;
-  private owner: Wallet;
+  /** Welcome-minter only — must NOT be the contract owner/upgrade key in production. */
+  private minter: Wallet;
 
   constructor(
     rpcUrl: string,
     contractAddress: string,
-    ownerPrivateKey: string
+    welcomeMinterPrivateKey: string
   ) {
     this.provider = new JsonRpcProvider(rpcUrl);
-    const key = ownerPrivateKey.startsWith("0x") ? ownerPrivateKey : `0x${ownerPrivateKey}`;
-    this.owner = new Wallet(key, this.provider);
-    this.token = new Contract(contractAddress, ABI, this.owner);
+    const key = welcomeMinterPrivateKey.startsWith("0x")
+      ? welcomeMinterPrivateKey
+      : `0x${welcomeMinterPrivateKey}`;
+    this.minter = new Wallet(key, this.provider);
+    this.token = new Contract(contractAddress, ABI, this.minter);
   }
 
   walletFromKey(privateKey: string): Wallet {

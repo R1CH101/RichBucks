@@ -24,6 +24,8 @@ contract RichBucks is
     uint256 public verifierReward;
     uint256 public welcomeAmount;
     address public treasury;
+    /// @notice Can call mintWelcome without being owner (Teams bot). Owner retains full control.
+    address public welcomeMinter;
 
     /// @notice Added to block.timestamp before / 1 days (e.g. 0 = UTC/GMT, 3600 = BST).
     int64 public timezoneOffsetSeconds;
@@ -45,7 +47,13 @@ contract RichBucks is
     );
     event WelcomeMinted(address indexed to, uint256 amount);
     event AdminMinted(address indexed to, uint256 amount, address indexed operator);
+    event WelcomeMinterUpdated(address indexed previous, address indexed current);
     event BridgeLocked(address indexed from, address indexed baseDestination, uint256 amount);
+
+    modifier onlyOwnerOrWelcomeMinter() {
+        require(msg.sender == owner() || msg.sender == welcomeMinter, "not minter");
+        _;
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -60,6 +68,7 @@ contract RichBucks is
         __Ownable_init(initialOwner);
 
         treasury = initialTreasury;
+        welcomeMinter = initialOwner; // rotate to bot key via setWelcomeMinter after deploy
         // 0 = unlimited (Dogecoin-style). Set a finite cap later via setMaxSupply if needed.
         maxSupply = 0;
         dailyAllowance = 1;
@@ -104,13 +113,19 @@ contract RichBucks is
     }
 
     /// @notice Bot/admin mints welcome pack once per address (not from treasury).
-    function mintWelcome(address to) external onlyOwner {
+    function mintWelcome(address to) external onlyOwnerOrWelcomeMinter {
         require(welcomeMintEnabled, "welcome off");
         require(to != address(0), "zero");
         require(!welcomeClaimed[to], "claimed");
         welcomeClaimed[to] = true;
         _mintUnderCap(to, welcomeAmount);
         emit WelcomeMinted(to, welcomeAmount);
+    }
+
+    function setWelcomeMinter(address newMinter) external onlyOwner {
+        require(newMinter != address(0), "zero");
+        emit WelcomeMinterUpdated(welcomeMinter, newMinter);
+        welcomeMinter = newMinter;
     }
 
     function mintAdmin(address to, uint256 amount) external onlyOwner {

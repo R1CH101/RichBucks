@@ -1,0 +1,6 @@
+# Optional local debug: publish validator-1 RPC to localhost for contract deploy tunnels.
+# docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d
+services:
+  validator-1:
+    ports:
+      - "127.0.0.1:8545:8545"

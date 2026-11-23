@@ -2,22 +2,33 @@ import express from "express";
 import session from "cookie-session";
 import bcrypt from "bcryptjs";
 import { authenticator } from "otplib";
-import QRCode from "qrcode";
 import { Contract, JsonRpcProvider, Wallet } from "ethers";
 import * as dotenv from "dotenv";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { assertAdminSecrets, isProduction } from "./secrets";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
+assertAdminSecrets();
 
 const port = Number(process.env.ADMIN_PORT || 3000);
 const username = process.env.ADMIN_USERNAME || "admin";
 const passwordHash =
   process.env.ADMIN_PASSWORD_HASH ||
   bcrypt.hashSync(process.env.ADMIN_PASSWORD || "change-me", 10);
+
+if (isProduction() && !process.env.ADMIN_TOTP_SECRET) {
+  console.error("ADMIN_TOTP_SECRET is required in production");
+  process.exit(1);
+}
 const totpSecret = process.env.ADMIN_TOTP_SECRET || authenticator.generateSecret();
-const sessionSecret = process.env.SESSION_SECRET || "dev-session-secret";
+const sessionSecret = process.env.SESSION_SECRET || "dev-session-secret-local-only!!";
+const joinApiKey = process.env.NODE_JOIN_API_KEY || "";
+const cookieSecure =
+  process.env.COOKIE_SECURE === "true" ||
+  (isProduction() && process.env.COOKIE_SECURE !== "false");
 
 const ABI = [
   "function totalSupply() view returns (uint256)",
@@ -38,6 +49,7 @@ const ABI = [
   "function setAdminMintEnabled(bool)",
   "function setDailyTipEnabled(bool)",
   "function setTimezoneOffsetSeconds(int64)",
+  "function setWelcomeMinter(address)",
 ] as const;
 
 function getOwner() {
@@ -52,6 +64,45 @@ function getOwner() {
   return { provider, wallet, token };
 }
 
+const loginAttempts = new Map<string, { count: number; start: number }>();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX = 8;
+
+function rateLimitLogin(ip: string): boolean {
+  const now = Date.now();
+  let b = loginAttempts.get(ip);
+  if (!b || now - b.start > LOGIN_WINDOW_MS) {
+    b = { count: 0, start: now };
+    loginAttempts.set(ip, b);
+  }
+  b.count += 1;
+  return b.count <= LOGIN_MAX;
+}
+
+function csrfToken(req: express.Request): string {
+  const s = req.session as { csrf?: string };
+  if (!s.csrf) s.csrf = crypto.randomBytes(24).toString("hex");
+  return s.csrf;
+}
+
+function requireCsrf(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const expected = (req.session as { csrf?: string }).csrf;
+  const got = String(req.body?._csrf || req.header("x-csrf-token") || "");
+  if (!expected || !got || expected.length !== got.length) {
+    return res.status(403).send(layout("Forbidden", `<p class="err">Invalid CSRF token.</p>`));
+  }
+  const a = Buffer.from(expected);
+  const b = Buffer.from(got);
+  if (!crypto.timingSafeEqual(a, b)) {
+    return res.status(403).send(layout("Forbidden", `<p class="err">Invalid CSRF token.</p>`));
+  }
+  return next();
+}
+
+function csrfField(req: express.Request): string {
+  return `<input type="hidden" name="_csrf" value="${csrfToken(req)}" />`;
+}
+
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.urlencoded({ extended: true }));
@@ -60,15 +111,15 @@ app.use(
   session({
     name: "rb_admin",
     keys: [sessionSecret],
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: 12 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.COOKIE_SECURE === "true",
+    sameSite: "strict",
+    secure: cookieSecure,
   })
 );
 
 function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-  if ((req.session as any)?.authed) return next();
+  if ((req.session as { authed?: boolean })?.authed) return next();
   return res.redirect("/login");
 }
 
@@ -101,48 +152,59 @@ ${body}
 
 app.get("/health", (_req, res) => res.send("ok"));
 
-app.get("/login", async (req, res) => {
-  const qr = await QRCode.toDataURL(authenticator.keyuri(username, "RichBucks Admin", totpSecret));
+app.get("/login", (req, res) => {
   res.send(
     layout(
       "Login",
       `<h1>RichBucks Admin</h1>
-      <p class="sub">Username + password + 2FA (TOTP). Entra External ID later.</p>
+      <p class="sub">Username + password + 2FA (TOTP). Set ADMIN_TOTP_SECRET in Coolify before first login.</p>
       <div class="card">
         <form method="post" action="/login">
+          ${csrfField(req)}
           <label>Username</label><input name="username" autocomplete="username" required />
           <label>Password</label><input name="password" type="password" autocomplete="current-password" required />
           <label>2FA code</label><input name="otp" inputmode="numeric" autocomplete="one-time-code" required />
           <button type="submit">Sign in</button>
         </form>
-      </div>
-      <div class="card">
-        <p class="muted">If ADMIN_TOTP_SECRET was empty at boot, a secret was generated. Scan once and set ADMIN_TOTP_SECRET in Coolify:</p>
-        <p><code>${totpSecret}</code></p>
-        <img src="${qr}" alt="TOTP QR" width="180" height="180" />
       </div>`
     )
   );
 });
 
-app.post("/login", (req, res) => {
+app.post("/login", requireCsrf, (req, res) => {
+  const ip = req.ip || "unknown";
+  if (!rateLimitLogin(ip)) {
+    return res
+      .status(429)
+      .send(layout("Login", `<p class="err">Too many attempts. Try again later.</p>`));
+  }
+
   const { username: u, password, otp } = req.body;
   const userOk = u === username;
   const passOk = bcrypt.compareSync(password || "", passwordHash);
   const otpOk = authenticator.check(otp || "", totpSecret);
   if (!userOk || !passOk || !otpOk) {
-    return res.status(401).send(layout("Login", `<p class="err">Invalid credentials.</p><a class="btn" href="/login">Try again</a>`));
+    return res
+      .status(401)
+      .send(
+        layout(
+          "Login",
+          `<p class="err">Invalid credentials.</p><a class="btn" href="/login">Try again</a>`
+        )
+      );
   }
-  (req.session as any).authed = true;
+  // Regenerate CSRF + mark authed
+  (req.session as { authed?: boolean; csrf?: string }).csrf = crypto.randomBytes(24).toString("hex");
+  (req.session as { authed?: boolean }).authed = true;
   res.redirect("/");
 });
 
-app.post("/logout", requireAuth, (req, res) => {
-  req.session = null as any;
+app.post("/logout", requireAuth, requireCsrf, (req, res) => {
+  req.session = null;
   res.redirect("/login");
 });
 
-app.get("/", requireAuth, async (_req, res) => {
+app.get("/", requireAuth, async (req, res) => {
   const ctx = getOwner();
   let stats = "Configure RPC_URL, CONTRACT_ADDRESS, DEPLOYER_PRIVATE_KEY";
   let tipFlags = "";
@@ -176,29 +238,31 @@ app.get("/", requireAuth, async (_req, res) => {
         <p class="muted">welcomeMint=${wEn} · adminMint=${aEn} · dailyTip=${tEn} · showMetamask=${process.env.SHOW_METAMASK_CARD}</p>`;
       tipFlags = `
         <form method="post" action="/settings" class="card">
+          ${csrfField(req)}
           <h2>Parameters</h2>
-          <label>Daily allowance</label><input name="dailyAllowance" value="${daily}" />
-          <label>Verifier reward</label><input name="verifierReward" value="${ver}" />
-          <label>Welcome amount</label><input name="welcomeAmount" value="${welcome}" />
+          <label>Daily allowance (max 100 via UI)</label><input name="dailyAllowance" value="${daily}" />
+          <label>Verifier reward (max 100 via UI)</label><input name="verifierReward" value="${ver}" />
+          <label>Welcome amount (max 1000 via UI)</label><input name="welcomeAmount" value="${welcome}" />
           <label>Max supply (0 = unlimited)</label><input name="maxSupply" value="${max}" />
           <label>Timezone offset seconds (0=UTC/GMT, 3600=BST)</label><input name="tz" value="0" />
           <label><input type="checkbox" name="welcomeMintEnabled" ${wEn ? "checked" : ""}/> Welcome mint enabled</label>
           <label><input type="checkbox" name="adminMintEnabled" ${aEn ? "checked" : ""}/> Admin mint enabled</label>
           <label><input type="checkbox" name="dailyTipEnabled" ${tEn ? "checked" : ""}/> Daily tips enabled</label>
-          <label><input type="checkbox" name="showMetamask" ${process.env.SHOW_METAMASK_CARD === "true" ? "checked" : ""}/> Show MetaMask hint on /balance (env — restart bot after Coolify change)</label>
           <button type="submit">Save on-chain settings</button>
         </form>`;
-    } catch (e: any) {
-      stats = `<p class="err">${e.message || e}</p>`;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      stats = `<p class="err">${msg}</p>`;
     }
   }
 
   res.send(
     layout(
       "Dashboard",
-      `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a><form style="display:inline" method="post" action="/logout"><button type="submit">Log out</button></form></nav>
+      `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a>
+      <form style="display:inline" method="post" action="/logout">${csrfField(req)}<button type="submit">Log out</button></form></nav>
       <h1>Dashboard</h1>
-      <p class="sub">Sole admin surface — Teams has no /admin.</p>
+      <p class="sub">Sole admin surface — Teams has no /admin. Deployer key stays here; bot uses welcome minter only.</p>
       <div class="card">${stats}</div>
       ${tipFlags}
       <div class="card">
@@ -209,44 +273,52 @@ app.get("/", requireAuth, async (_req, res) => {
   );
 });
 
-app.post("/settings", requireAuth, async (req, res) => {
+app.post("/settings", requireAuth, requireCsrf, async (req, res) => {
   const ctx = getOwner();
   if (!ctx) return res.status(500).send("chain not configured");
   const b = req.body;
-  const txs = [];
-  if (b.dailyAllowance !== undefined) txs.push(ctx.token.setDailyAllowance(BigInt(b.dailyAllowance), { gasPrice: 0n }));
-  if (b.verifierReward !== undefined) txs.push(ctx.token.setVerifierReward(BigInt(b.verifierReward), { gasPrice: 0n }));
-  if (b.welcomeAmount !== undefined) txs.push(ctx.token.setWelcomeAmount(BigInt(b.welcomeAmount), { gasPrice: 0n }));
-  if (b.maxSupply !== undefined) txs.push(ctx.token.setMaxSupply(BigInt(b.maxSupply), { gasPrice: 0n }));
-  if (b.tz !== undefined) txs.push(ctx.token.setTimezoneOffsetSeconds(BigInt(b.tz), { gasPrice: 0n }));
-  txs.push(ctx.token.setWelcomeMintEnabled(b.welcomeMintEnabled === "on", { gasPrice: 0n }));
-  txs.push(ctx.token.setAdminMintEnabled(b.adminMintEnabled === "on", { gasPrice: 0n }));
-  txs.push(ctx.token.setDailyTipEnabled(b.dailyTipEnabled === "on", { gasPrice: 0n }));
+  const daily = BigInt(b.dailyAllowance || "0");
+  const ver = BigInt(b.verifierReward || "0");
+  const welcome = BigInt(b.welcomeAmount || "0");
+  if (daily > 100n || ver > 100n || welcome > 1000n) {
+    return res.status(400).send(layout("Settings", `<p class="err">Parameter above UI safety cap.</p>`));
+  }
+  const txs = [
+    ctx.token.setDailyAllowance(daily, { gasPrice: 0n }),
+    ctx.token.setVerifierReward(ver, { gasPrice: 0n }),
+    ctx.token.setWelcomeAmount(welcome, { gasPrice: 0n }),
+    ctx.token.setMaxSupply(BigInt(b.maxSupply || "0"), { gasPrice: 0n }),
+    ctx.token.setTimezoneOffsetSeconds(BigInt(b.tz || "0"), { gasPrice: 0n }),
+    ctx.token.setWelcomeMintEnabled(b.welcomeMintEnabled === "on", { gasPrice: 0n }),
+    ctx.token.setAdminMintEnabled(b.adminMintEnabled === "on", { gasPrice: 0n }),
+    ctx.token.setDailyTipEnabled(b.dailyTipEnabled === "on", { gasPrice: 0n }),
+  ];
   for (const p of txs) await (await p).wait();
   res.redirect("/");
 });
 
-app.get("/mint", requireAuth, (_req, res) => {
+app.get("/mint", requireAuth, (req, res) => {
   res.send(
     layout(
       "Mint",
       `<nav><a href="/">Dashboard</a></nav>
       <h1>Admin mint</h1>
       <form method="post" action="/mint" class="card">
+        ${csrfField(req)}
         <label>Address (0x…)</label><input name="to" required />
-        <label>Amount (whole RB)</label><input name="amount" pattern="\\d+" required />
+        <label>Amount (whole RB, max 100000 per tx via UI)</label><input name="amount" pattern="\\d+" required />
         <button type="submit">Mint</button>
       </form>`
     )
   );
 });
 
-app.post("/mint", requireAuth, async (req, res) => {
+app.post("/mint", requireAuth, requireCsrf, async (req, res) => {
   const ctx = getOwner();
   if (!ctx) return res.status(500).send("chain not configured");
   const to = String(req.body.to || "");
   const amount = BigInt(String(req.body.amount || "0"));
-  if (!/^0x[a-fA-F0-9]{40}$/.test(to) || amount <= 0n) {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(to) || amount <= 0n || amount > 100000n) {
     return res.status(400).send(layout("Mint", `<p class="err">Invalid address or amount</p>`));
   }
   const tx = await ctx.token.mintAdmin(to, amount, { gasPrice: 0n });
@@ -254,11 +326,31 @@ app.post("/mint", requireAuth, async (req, res) => {
   res.redirect("/mint");
 });
 
-/** Coworker node join — genesis + bootnodes behind API key */
+const joinHits = new Map<string, { count: number; start: number }>();
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+/** Coworker node join — genesis + bootnodes behind API key (v1.1 / VPN). */
 app.get("/join/config", (req, res) => {
+  const ip = req.ip || "unknown";
+  const now = Date.now();
+  let bucket = joinHits.get(ip);
+  if (!bucket || now - bucket.start > 60_000) {
+    bucket = { start: now, count: 0 };
+    joinHits.set(ip, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > 30) return res.status(429).json({ error: "rate limited" });
+
+  if (!joinApiKey) return res.status(503).json({ error: "join disabled" });
   const auth = req.header("authorization") || "";
   const key = auth.replace(/^Bearer\s+/i, "");
-  if (!key || key !== process.env.NODE_JOIN_API_KEY) {
+  if (!key || !timingSafeEqualStr(key, joinApiKey)) {
     return res.status(401).json({ error: "unauthorized" });
   }
   const genesisPath =
@@ -275,8 +367,5 @@ app.get("/join/config", (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`RichBucks admin on ${port}`);
-  if (!process.env.ADMIN_TOTP_SECRET) {
-    console.warn("ADMIN_TOTP_SECRET not set — generated ephemeral secret:", totpSecret);
-  }
+  console.log(`RichBucks admin on ${port} (secureCookie=${cookieSecure})`);
 });
