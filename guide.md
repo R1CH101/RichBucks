@@ -384,7 +384,7 @@ First interaction creates a custodial wallet and mints the welcome pack (if welc
 ## 7. Admin UI checklist
 
 1. Login with user / password / TOTP  
-2. Confirm supply **1000000**, max **10000000**, block number moving when txs occur  
+2. Confirm supply **1000000**, max **0** (unlimited), block number moving when txs occur  
 3. **Mint** a test amount to an address if needed  
 4. Adjust daily tip / verifier reward / kill switches for welcome & admin mint  
 5. Set timezone offset for “day” boundary (`0` = UTC/GMT, `3600` ≈ BST)  
