@@ -180,7 +180,7 @@ app.get("/", requireAuth, async (_req, res) => {
           <label>Daily allowance</label><input name="dailyAllowance" value="${daily}" />
           <label>Verifier reward</label><input name="verifierReward" value="${ver}" />
           <label>Welcome amount</label><input name="welcomeAmount" value="${welcome}" />
-          <label>Max supply</label><input name="maxSupply" value="${max}" />
+          <label>Max supply (0 = unlimited)</label><input name="maxSupply" value="${max}" />
           <label>Timezone offset seconds (0=UTC/GMT, 3600=BST)</label><input name="tz" value="0" />
           <label><input type="checkbox" name="welcomeMintEnabled" ${wEn ? "checked" : ""}/> Welcome mint enabled</label>
           <label><input type="checkbox" name="adminMintEnabled" ${aEn ? "checked" : ""}/> Admin mint enabled</label>

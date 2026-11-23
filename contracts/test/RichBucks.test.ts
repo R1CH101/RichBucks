@@ -13,12 +13,19 @@ describe("RichBucks", () => {
     return { token, owner, treasury, alice, bob };
   }
 
-  it("mints 1_000_000 to treasury with 0 decimals and 10M cap", async () => {
+  it("mints 1_000_000 to treasury with 0 decimals and unlimited maxSupply", async () => {
     const { token, treasury } = await deploy();
     expect(await token.decimals()).to.equal(0);
     expect(await token.totalSupply()).to.equal(1_000_000n);
     expect(await token.balanceOf(treasury.address)).to.equal(1_000_000n);
-    expect(await token.maxSupply()).to.equal(10_000_000n);
+    expect(await token.maxSupply()).to.equal(0n); // 0 = unlimited
+  });
+
+  it("optional finite maxSupply still enforces a cap", async () => {
+    const { token, owner, alice } = await deploy();
+    await token.connect(owner).setMaxSupply(1_000_010n);
+    await token.connect(owner).mintAdmin(alice.address, 10n);
+    await expect(token.connect(owner).mintAdmin(alice.address, 1n)).to.be.revertedWith("cap");
   });
 
   it("giveDailyTip mints tip + verifier reward once per day", async () => {

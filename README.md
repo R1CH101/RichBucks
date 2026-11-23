@@ -15,7 +15,7 @@ License: [AGPL-3.0-only](./LICENSE). Commercial use is allowed; modified version
 | Path | Purpose |
 |---|---|
 | `chain/` | 4-validator Besu QBFT (chainId **88420**), public RPC proxy, coworker node image |
-| `contracts/` | UUPS upgradeable RB token (0 decimals, 10M max, daily tip + proposer mint) |
+| `contracts/` | UUPS upgradeable RB token (0 decimals, unlimited supply by default, daily tip + proposer mint) |
 | `bot/` | Teams bot: `/give` `/send` `/balance` `/leaderboard` `/export-wallet` |
 | `admin/` | Username/password + TOTP 2FA admin (mint, params, join config) |
 
@@ -88,7 +88,7 @@ Image publishes to `ghcr.io/<owner>/coworker-node` on `main` via GitHub Actions 
 
 ## Token economics (v1)
 
-- Treasury pre-mint **1,000,000** RB; `maxSupply` **10,000,000**  
+- Treasury pre-mint **1,000,000** RB; `maxSupply` **0** = unlimited (optional finite cap via admin)  
 - **0 decimals** (whole numbers only — bot, admin, MetaMask)  
 - `/give` mints 1 RB to recipient + 1 RB to `block.coinbase` (proposer)  
 - Welcome + admin mint (not from treasury); disable flags for a future public launch  

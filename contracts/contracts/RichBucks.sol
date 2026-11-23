@@ -60,7 +60,8 @@ contract RichBucks is
         __Ownable_init(initialOwner);
 
         treasury = initialTreasury;
-        maxSupply = 10_000_000;
+        // 0 = unlimited (Dogecoin-style). Set a finite cap later via setMaxSupply if needed.
+        maxSupply = 0;
         dailyAllowance = 1;
         verifierReward = 1;
         welcomeAmount = 10;
@@ -125,8 +126,9 @@ contract RichBucks is
         emit BridgeLocked(msg.sender, baseDestination, amount);
     }
 
+    /// @notice Set a finite cap, or `0` for unlimited minting.
     function setMaxSupply(uint256 newMax) external onlyOwner {
-        require(newMax >= totalSupply(), "below supply");
+        require(newMax == 0 || newMax >= totalSupply(), "below supply");
         maxSupply = newMax;
     }
 
@@ -164,7 +166,9 @@ contract RichBucks is
     }
 
     function _mintUnderCap(address to, uint256 amount) internal {
-        require(totalSupply() + amount <= maxSupply, "cap");
+        if (maxSupply != 0) {
+            require(totalSupply() + amount <= maxSupply, "cap");
+        }
         _mint(to, amount);
     }
 
