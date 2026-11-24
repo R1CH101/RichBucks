@@ -2,7 +2,6 @@ import express from "express";
 import {
   CloudAdapter,
   ConfigurationBotFrameworkAuthentication,
-  ConfigurationServiceClientCredentialFactory,
   TurnContext,
   CardFactory,
   MessageFactory,
@@ -12,6 +11,8 @@ import { WalletStore } from "./walletStore";
 import { ChainClient, parseWholeRb } from "./chainClient";
 import { parseCommand } from "./commands/parse";
 import { assertBotSecrets, assertWalletKeyStrength, isProduction } from "./secrets";
+import { MultiAppCredentialsFactory } from "./multiAppCredentialsFactory";
+import { TeamsAppsStore, teamsConfigDir, teamsConfigSecret } from "./teamsAppsStore";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
@@ -20,20 +21,26 @@ assertBotSecrets();
 
 const port = Number(process.env.BOT_PORT || 3978);
 const showMetamask = process.env.SHOW_METAMASK_CARD === "true";
-const expectedTenant = process.env.MICROSOFT_APP_TENANT_ID || "";
 
-if (isProduction() && !expectedTenant) {
-  console.error("MICROSOFT_APP_TENANT_ID required in production (single-tenant only)");
+const teamsSecret =
+  teamsConfigSecret() || process.env.WALLET_ENCRYPTION_KEY || "dev-only-change-me-local-not-prod!!";
+assertWalletKeyStrength(teamsSecret);
+
+const teamsApps = new TeamsAppsStore(
+  process.env.TEAMS_CONFIG_DIR ||
+    (isProduction() ? teamsConfigDir() : "./data/config"),
+  teamsSecret
+);
+teamsApps.seedFromEnvIfEmpty();
+
+if (isProduction() && teamsApps.list().length === 0) {
+  console.error(
+    "No Teams apps configured. Set MICROSOFT_APP_ID/PASSWORD/TENANT_ID or add apps in admin → Teams apps."
+  );
   process.exit(1);
 }
 
-const credentialsFactory = new ConfigurationServiceClientCredentialFactory({
-  MicrosoftAppId: process.env.MICROSOFT_APP_ID || "",
-  MicrosoftAppPassword: process.env.MICROSOFT_APP_PASSWORD || "",
-  MicrosoftAppType: "SingleTenant",
-  MicrosoftAppTenantId: expectedTenant || "common",
-});
-
+const credentialsFactory = new MultiAppCredentialsFactory(teamsApps);
 const botFrameworkAuthentication = new ConfigurationBotFrameworkAuthentication(
   {},
   credentialsFactory
@@ -74,6 +81,30 @@ const HELP = [
 const exportHits = new Map<string, number>();
 const EXPORT_COOLDOWN_MS = 60 * 60 * 1000;
 
+function activityTenantId(context: TurnContext): string {
+  return (
+    context.activity.conversation?.tenantId ||
+    (context.activity.channelData as { tenant?: { id?: string } })?.tenant?.id ||
+    ""
+  );
+}
+
+function microsoftAppIdForActivity(context: TurnContext): string {
+  const tenant = activityTenantId(context).toLowerCase();
+  if (tenant) {
+    const match = teamsApps.list().find((a) => a.tenantId.toLowerCase() === tenant);
+    if (match) return match.appId;
+  }
+  return teamsApps.list()[0]?.appId || process.env.MICROSOFT_APP_ID || "";
+}
+
+function tenantAllowed(tenantId: string): boolean {
+  if (!tenantId) return false;
+  const allowed = teamsApps.allowedTenantIds();
+  if (allowed.size === 0) return false;
+  return allowed.has(tenantId.toLowerCase());
+}
+
 function isGroupConversation(context: TurnContext): boolean {
   const t = context.activity.conversation?.conversationType;
   return t === "groupChat" || t === "channel";
@@ -92,10 +123,8 @@ async function replyPrivately(
 
   await context.sendActivity(groupAck);
 
-  const appId = process.env.MICROSOFT_APP_ID || "";
-  const tenantId =
-    context.activity.conversation.tenantId ||
-    (context.activity.channelData as { tenant?: { id?: string } })?.tenant?.id;
+  const appId = microsoftAppIdForActivity(context);
+  const tenantId = activityTenantId(context) || undefined;
   const members = [
     {
       id: context.activity.from.id,
@@ -158,11 +187,11 @@ async function ensureUser(context: TurnContext) {
 function firstMention(context: TurnContext): { id: string; name: string } | undefined {
   const entities = context.activity.entities || [];
   for (const e of entities) {
-    if ((e as any).type === "mention") {
-      const mentioned = (e as any).mentioned;
+    if ((e as { type?: string }).type === "mention") {
+      const mentioned = (e as { mentioned?: { id?: string; aadObjectId?: string; name?: string } }).mentioned;
       if (mentioned && mentioned.id !== context.activity.recipient.id) {
         return {
-          id: mentioned.aadObjectId || mentioned.id,
+          id: mentioned.aadObjectId || mentioned.id || "",
           name: mentioned.name || "User",
         };
       }
@@ -188,14 +217,10 @@ async function handleMessage(context: TurnContext) {
   const text = (context.activity.text || "").trim();
   if (!text) return;
 
-  if (expectedTenant) {
-    const tenantId =
-      context.activity.conversation?.tenantId ||
-      (context.activity.channelData as { tenant?: { id?: string } })?.tenant?.id;
-    if (!tenantId || tenantId !== expectedTenant) {
-      await context.sendActivity("This RichBucks bot is not enabled for your organisation.");
-      return;
-    }
+  const tenantId = activityTenantId(context);
+  if (!tenantAllowed(tenantId)) {
+    await context.sendActivity("This RichBucks bot is not enabled for your organisation.");
+    return;
   }
 
   const me = await ensureUser(context);
@@ -234,8 +259,9 @@ async function handleMessage(context: TurnContext) {
         await context.sendActivity(
           `Sent **1 RB** to **${recipient.displayName}** (${cmd.reason}).\nTheir balance: **${bal} RB**\nTx: \`${receipt?.hash || "ok"}\``
         );
-      } catch (e: any) {
-        const msg = String(e?.shortMessage || e?.reason || e?.message || e);
+      } catch (e: unknown) {
+        const err = e as { shortMessage?: string; reason?: string; message?: string };
+        const msg = String(err?.shortMessage || err?.reason || err?.message || e);
         if (msg.includes("already tipped")) {
           await context.sendActivity("You've already used today's /give.");
         } else {
@@ -258,8 +284,9 @@ async function handleMessage(context: TurnContext) {
         await context.sendActivity(
           `Sent **${amount} RB** to **${recipient.displayName}**.`
         );
-      } catch (e: any) {
-        await context.sendActivity(`Send failed: ${e?.shortMessage || e?.message || e}`);
+      } catch (e: unknown) {
+        const err = e as { shortMessage?: string; message?: string };
+        await context.sendActivity(`Send failed: ${err?.shortMessage || err?.message || e}`);
       }
       return;
     }
@@ -366,5 +393,7 @@ app.post("/api/messages", async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`RichBucks bot listening on ${port}`);
+  console.log(
+    `RichBucks bot listening on ${port} (teamsApps=${teamsApps.list().length})`
+  );
 });

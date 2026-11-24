@@ -20,9 +20,6 @@ export function assertBotSecrets(): void {
   };
 
   bad("WALLET_ENCRYPTION_KEY", process.env.WALLET_ENCRYPTION_KEY, 32);
-  bad("MICROSOFT_APP_ID", process.env.MICROSOFT_APP_ID, 30);
-  bad("MICROSOFT_APP_PASSWORD", process.env.MICROSOFT_APP_PASSWORD, 16);
-  bad("MICROSOFT_APP_TENANT_ID", process.env.MICROSOFT_APP_TENANT_ID, 30);
   bad("CONTRACT_ADDRESS", process.env.CONTRACT_ADDRESS, 42);
   bad("RPC_URL", process.env.RPC_URL, 8);
   bad("WELCOME_MINTER_PRIVATE_KEY", process.env.WELCOME_MINTER_PRIVATE_KEY, 64);
@@ -33,6 +30,18 @@ export function assertBotSecrets(): void {
       "Refusing to start bot: DEPLOYER_PRIVATE_KEY is set. Use WELCOME_MINTER_PRIVATE_KEY only and call setWelcomeMinter()."
     );
     process.exit(1);
+  }
+
+  // Teams apps: either full env bootstrap OR apps will be loaded from /config (checked after seed).
+  const hasEnvTeams =
+    Boolean((process.env.MICROSOFT_APP_ID || "").trim()) &&
+    Boolean((process.env.MICROSOFT_APP_PASSWORD || "").trim()) &&
+    Boolean((process.env.MICROSOFT_APP_TENANT_ID || "").trim());
+  if (!hasEnvTeams) {
+    // OK if config volume already has apps — validated after TeamsAppsStore.seedFromEnvIfEmpty()
+    console.warn(
+      "MICROSOFT_APP_* not fully set; expecting Teams apps in TEAMS_CONFIG_DIR (admin UI)."
+    );
   }
 
   if (missing.length) {

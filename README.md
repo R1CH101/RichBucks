@@ -75,7 +75,7 @@ Public/coworker P2P is **off in v1** (no open 30303; use VPN later). Company val
 
 ### Teams
 
-1. Azure Bot + App registration; set `MICROSOFT_APP_*` in env  
+1. Azure Bot + App registration(s); bootstrap `MICROSOFT_APP_*` and/or Admin → Teams apps (multi-tenant-of-apps)  
 2. Edit `bot/teams-manifest/manifest.json` botId  
 3. Add colour/outline icons; zip manifest; upload as custom app  
 4. Add bot to the group chat  

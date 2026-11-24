@@ -160,12 +160,18 @@ If you lose this key, existing custodial wallets in SQLite **cannot** be decrypt
 
 ### 2.4 Microsoft Teams bot
 
+RichBucks accepts **multiple single-tenant** Azure Bot / app registrations (e.g. personal Entra + company Entra) on the same messaging URL. Configure extras in **Admin → Teams apps** (encrypted on the `app-config` volume). Env vars bootstrap the first app.
+
 | Variable | Example | How to get it |
 |---|---|---|
-| `MICROSOFT_APP_ID` | GUID | Azure Bot / App registration **Application (client) ID** |
+| `MICROSOFT_APP_ID` | GUID | Azure Bot / App registration **Application (client) ID** (bootstrap) |
 | `MICROSOFT_APP_PASSWORD` | `~` secret string | App registration **client secret** value |
-| `MICROSOFT_APP_TENANT_ID` | GUID | Your Entra **Directory (tenant) ID** (single-tenant) |
+| `MICROSOFT_APP_TENANT_ID` | GUID | That app’s Entra **Directory (tenant) ID** |
+| `TEAMS_CONFIG_KEY` | same as wallet key OK | Encrypts the shared Teams-apps registry; defaults to `WALLET_ENCRYPTION_KEY` |
+| `TEAMS_CONFIG_DIR` | `/config` | Path to `app-config` volume inside bot/admin |
 | `BOT_PORT` | `3978` | Leave default unless you change compose |
+
+**Personal tenant + company coworkers:** register a Single Tenant bot in **each** Entra directory, set both messaging endpoints to `https://bot.richbucks.xyz/api/messages`, then add the company app under Admin → Teams apps (or bootstrap env with one and add the other in the UI). Install each Teams package in its own tenant.
 
 #### How to create the Azure Bot (step by step)
 
@@ -336,7 +342,7 @@ export DEPLOYER_ADDRESS=0xYourDeployerAddress
 1. New resource → **Docker Compose** → connect `R1CH101/RichBucks`  
 2. Compose file: `docker-compose.yml` (includes `chain/docker-compose.yml`)  
 3. Paste all env vars from section 2 (include `DEPLOYER_ADDRESS`)  
-4. Persistent storage: ensure named volumes **`chain-network`** and **`bot-wallets`** are kept (Coolify usually keeps Compose volumes by default — do not mark the app as ephemeral wipe-on-redeploy)  
+4. Persistent storage: keep named volumes **`chain-network`**, **`bot-wallets`**, and **`app-config`** (Coolify usually keeps Compose volumes — do not wipe on redeploy)  
 5. Deploy — `chain-init` runs automatically  
 
 **Compose note:** root compose uses Compose `include` (Docker Compose **2.20+**). Coolify hosts with older Compose should upgrade Docker Compose or merge the chain services into one file.

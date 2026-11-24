@@ -9,10 +9,18 @@ import fs from "fs";
 import path from "path";
 import { assertAdminSecrets, isProduction } from "./secrets";
 import { clientIp, ipAllowed, isLoopback, parseAllowlist } from "./ipAllowlist";
+import { TeamsAppsStore, teamsConfigDir, teamsConfigSecret } from "./teamsAppsStore";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
 assertAdminSecrets();
+
+const teamsSecret = teamsConfigSecret();
+const teamsApps = new TeamsAppsStore(
+  process.env.TEAMS_CONFIG_DIR || (isProduction() ? teamsConfigDir() : "./data/config"),
+  teamsSecret || "dev-only-change-me-local-not-prod!!"
+);
+teamsApps.seedFromEnvIfEmpty();
 
 const port = Number(process.env.ADMIN_PORT || 3000);
 const username = process.env.ADMIN_USERNAME || "admin";
@@ -282,10 +290,10 @@ app.get("/", requireAuth, async (req, res) => {
   res.send(
     layout(
       "Dashboard",
-      `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a>
+      `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a><a href="/teams-apps">Teams apps</a>
       <form style="display:inline" method="post" action="/logout">${csrfField(req)}<button type="submit">Log out</button></form></nav>
       <h1>Dashboard</h1>
-      <p class="sub">Sole admin surface — Teams has no /admin. Deployer key stays here; bot uses welcome minter only.</p>
+      <p class="sub">Sole admin surface — Teams has no /admin. Deployer key stays here; bot uses welcome minter only. Add each Entra tenant's bot under Teams apps.</p>
       <div class="card">${stats}</div>
       ${tipFlags}
       <div class="card">
@@ -324,7 +332,7 @@ app.get("/mint", requireAuth, (req, res) => {
   res.send(
     layout(
       "Mint",
-      `<nav><a href="/">Dashboard</a></nav>
+      `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a><a href="/teams-apps">Teams apps</a></nav>
       <h1>Admin mint</h1>
       <form method="post" action="/mint" class="card">
         ${csrfField(req)}
@@ -348,6 +356,82 @@ app.post("/mint", requireAuth, requireCsrf, async (req, res) => {
   await tx.wait();
   res.redirect("/mint");
 });
+
+app.get("/teams-apps", requireAuth, (req, res) => {
+  const apps = teamsApps.listPublic();
+  const rows = apps.length
+    ? apps
+        .map(
+          (a) => `<tr>
+          <td>${escapeHtml(a.label)}</td>
+          <td><code>${escapeHtml(a.appId)}</code></td>
+          <td><code>${escapeHtml(a.tenantId)}</code></td>
+          <td>
+            <form method="post" action="/teams-apps/delete" style="display:inline">
+              ${csrfField(req)}
+              <input type="hidden" name="id" value="${escapeHtml(a.id)}" />
+              <button type="submit" onclick="return confirm('Remove this Teams app?')">Delete</button>
+            </form>
+          </td>
+        </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="4" class="muted">No apps yet — add your personal and/or company bot registrations below.</td></tr>`;
+
+  res.send(
+    layout(
+      "Teams apps",
+      `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a><a href="/teams-apps">Teams apps</a></nav>
+      <h1>Teams apps</h1>
+      <p class="sub">Each single-tenant Azure Bot / app registration that should hit this RichBucks bot. Same messaging URL for all: <code>https://bot.richbucks.xyz/api/messages</code>. Passwords are stored encrypted; never shown again after save.</p>
+      <div class="card">
+        <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
+          <thead><tr>
+            <th align="left">Label</th><th align="left">App ID</th><th align="left">Tenant ID</th><th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <form method="post" action="/teams-apps" class="card">
+        ${csrfField(req)}
+        <h2>Add app</h2>
+        <label>Label</label><input name="label" placeholder="Company" required />
+        <label>Application (client) ID</label><input name="appId" required />
+        <label>Client secret</label><input name="appPassword" type="password" required autocomplete="new-password" />
+        <label>Directory (tenant) ID</label><input name="tenantId" required />
+        <button type="submit">Save app</button>
+      </form>`
+    )
+  );
+});
+
+app.post("/teams-apps", requireAuth, requireCsrf, (req, res) => {
+  try {
+    teamsApps.upsert({
+      label: String(req.body.label || ""),
+      appId: String(req.body.appId || ""),
+      appPassword: String(req.body.appPassword || ""),
+      tenantId: String(req.body.tenantId || ""),
+    });
+    res.redirect("/teams-apps");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(400).send(layout("Teams apps", `<p class="err">${escapeHtml(msg)}</p><a class="btn" href="/teams-apps">Back</a>`));
+  }
+});
+
+app.post("/teams-apps/delete", requireAuth, requireCsrf, (req, res) => {
+  teamsApps.delete(String(req.body.id || ""));
+  res.redirect("/teams-apps");
+});
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 const joinHits = new Map<string, { count: number; start: number }>();
 const joinFailHits = new Map<string, { count: number; start: number }>();

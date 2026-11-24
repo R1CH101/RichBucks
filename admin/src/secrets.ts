@@ -28,6 +28,12 @@ export function assertAdminSecrets(): void {
   bad("CONTRACT_ADDRESS", process.env.CONTRACT_ADDRESS, 42);
   bad("RPC_URL", process.env.RPC_URL, 8);
   bad("ADMIN_ALLOWED_IPS", process.env.ADMIN_ALLOWED_IPS, 7);
+  // Encrypts Teams app registry shared with the bot (same key as wallets by default)
+  bad(
+    "TEAMS_CONFIG_KEY or WALLET_ENCRYPTION_KEY",
+    process.env.TEAMS_CONFIG_KEY || process.env.WALLET_ENCRYPTION_KEY,
+    32
+  );
   if (process.env.JOIN_ENABLED === "true") {
     bad("NODE_JOIN_API_KEY", process.env.NODE_JOIN_API_KEY, 24);
   }

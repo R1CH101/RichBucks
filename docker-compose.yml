@@ -3,6 +3,7 @@
 # Persistent volumes (Docker-managed — map these in Coolify if it asks; do not use ephemeral /data only):
 #   chain-network  — genesis, validator keys, blockchain (created by chain-init in Docker)
 #   bot-wallets    — custodial Teams wallet SQLite
+#   app-config     — encrypted multi Teams-app registry (admin + bot)
 #
 # 1) Set env (include DEPLOYER_ADDRESS or TREASURY_ADDRESS so genesis prefills the owner)
 # 2) Deploy — chain-init runs automatically once; later redeploys reuse the volume
@@ -57,6 +58,7 @@ services:
       RICHBUCKS_REQUIRE_SECRETS: "true"
       RPC_URL: http://validator-1:8545
       WALLET_DB_PATH: /data/wallets.sqlite
+      TEAMS_CONFIG_DIR: /config
       BOT_PORT: 3978
       # Never inject contract owner into the bot (overrides env_file)
       DEPLOYER_PRIVATE_KEY: ""
@@ -66,6 +68,7 @@ services:
       SESSION_SECRET: ""
     volumes:
       - bot-wallets:/data
+      - app-config:/config
     expose:
       - "3978"
     depends_on:
@@ -91,8 +94,10 @@ services:
       RPC_URL: http://validator-1:8545
       ADMIN_PORT: 3000
       GENESIS_PATH: /network/genesis.json
+      TEAMS_CONFIG_DIR: /config
     volumes:
       - chain-network:/network:ro
+      - app-config:/config
     expose:
       - "3000"
     depends_on:
@@ -111,6 +116,8 @@ services:
 volumes:
   bot-wallets:
     name: ${COMPOSE_PROJECT_NAME:-richbucks}_bot-wallets
+  app-config:
+    name: ${COMPOSE_PROJECT_NAME:-richbucks}_app-config
   # Re-declare so Coolify/root merge sees it (defined in chain/docker-compose.yml too)
   chain-network:
     name: ${COMPOSE_PROJECT_NAME:-richbucks}_chain-network
