@@ -11,16 +11,14 @@
 #   rpc-filter → https://rpc.richbucks.xyz:8549
 
 x-besu-common: &besu-common
-  # BESU_IMAGE_TAG selects the image. Do NOT pass BESU_VERSION into the
-  # container env — Besu maps that name to boolean --version and crashes.
   image: hyperledger/besu:${BESU_IMAGE_TAG:-25.1.0}
   restart: unless-stopped
   networks:
     - richbucks
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
-  # Coolify injects project env (including legacy BESU_VERSION) into every service
-  entrypoint: ["env", "-u", "BESU_VERSION", "/opt/besu/bin/besu-entry.sh"]
+  # Wrapper strips a Coolify-injected env that collides with Besu CLI flags
+  entrypoint: ["/bin/bash", "/rb-besu-entry.sh"]
 
 services:
   chain-init:
@@ -67,6 +65,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
       - "30303"
@@ -103,6 +102,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
@@ -131,6 +131,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
@@ -159,6 +160,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 

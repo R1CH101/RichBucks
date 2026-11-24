@@ -11,8 +11,7 @@ x-besu-common: &besu-common
     - richbucks
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
-  # Coolify injects BESU_VERSION; Besu maps it to boolean --version and crashes
-  entrypoint: ["env", "-u", "BESU_VERSION", "/opt/besu/bin/besu-entry.sh"]
+  entrypoint: ["/bin/bash", "/rb-besu-entry.sh"]
 
 services:
   chain-init:
@@ -60,6 +59,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
       - "30303"
@@ -96,6 +96,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
@@ -124,6 +125,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
@@ -152,6 +154,7 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
+      - ./scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
