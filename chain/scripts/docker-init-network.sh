@@ -3,21 +3,19 @@
 # Idempotent when genesis + validator-1 key already exist.
 set -euo pipefail
 
-export PATH="/opt/besu/bin:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
-BESU_BIN="${BESU_BIN:-/opt/besu/bin/besu.real}"
+export PATH="/opt/besu/bin:/opt/java/openjdk/bin:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+BESU_BIN="${BESU_BIN:-/opt/besu/bin/besu}"
 if [[ ! -x "$BESU_BIN" ]]; then
-  BESU_BIN="$(command -v besu.real 2>/dev/null || command -v besu || true)"
+  BESU_BIN="$(command -v besu 2>/dev/null || true)"
 fi
 
 OUT="${NETWORK_DIR:-/network}"
 mkdir -p "$OUT" || true
-# Coolify/besu-entry.sh may re-exec as user `besu`; ensure volume is writable
 if [[ "$(id -u)" -eq 0 ]]; then
   chmod -R a+rwX "$OUT" 2>/dev/null || true
 fi
 
 LOG="$OUT/chain-init.log"
-# Logging must never abort init (permission issues on leftover volumes)
 if touch "$LOG" 2>/dev/null; then
   exec > >(tee -a "$LOG") 2>&1
 else
@@ -27,14 +25,14 @@ fi
 echo "==== chain-init begin pid=$$ uid=$(id -u) ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) ===="
 echo "args: $*"
 echo "profile=${PROFILE:-} network_dir=$OUT deployer_set=${DEPLOYER_ADDRESS:+yes} treasury_set=${TREASURY_ADDRESS:+yes}"
-echo "besu_bin=$BESU_BIN path=$PATH"
+echo "besu_bin=$BESU_BIN"
 
 PROFILE="${PROFILE:-prod}"
 CONFIG="${QBFT_CONFIG:-/qbft/qbftConfig.${PROFILE}.json}"
 DEPLOYER="${DEPLOYER_ADDRESS:-${TREASURY_ADDRESS:-}}"
 DEPLOYER="$(printf '%s' "$DEPLOYER" | tr -d '[:space:]"'"'"'')"
 
-echo "jq=$(command -v jq || echo MISSING) bash=$BASH_VERSION"
+echo "jq=$(command -v jq || echo MISSING) bash=$BASH_VERSION java=$(command -v java || echo MISSING)"
 echo "config=$CONFIG out=$OUT"
 
 if [[ ! -x "$BESU_BIN" ]]; then
@@ -55,7 +53,6 @@ if [[ -f "$OUT/genesis.json" && -f "$OUT/validator-1/data/key" ]]; then
   exit 0
 fi
 
-# Heal partial volume from a previous failed init
 if [[ -f "$OUT/genesis.json" || -d "$OUT/validator-1" || -d "$OUT/.generate" ]]; then
   echo "Partial/incomplete network state detected — clearing $OUT for a clean init."
   find "$OUT" -mindepth 1 -maxdepth 1 ! -name 'chain-init.log' -exec rm -rf {} +
@@ -130,7 +127,6 @@ done
 VALIDATORS_JSON+=']}'
 echo "$VALIDATORS_JSON" | jq . > "$OUT/validators.json"
 
-# Validators run as user besu
 if [[ "$(id -u)" -eq 0 ]]; then
   chmod -R a+rwX "$OUT" 2>/dev/null || true
 fi

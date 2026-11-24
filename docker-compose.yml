@@ -28,8 +28,8 @@ services:
     image: ghcr.io/${GHCR_OWNER:-richbucks}/chain-init:${TAG:-latest}
     restart: "no"
     user: "0:0"
-    # Image also replaces besu-entry.sh + wraps besu so Coolify entrypoint
-    # restores still run init. Do not set compose `command`.
+    # Final image is Temurin (not Besu), so Coolify cannot restore besu-entry.sh.
+    # Do not set compose `command`.
     entrypoint: ["/chain-init-entrypoint.sh"]
     environment:
       PROFILE: ${CHAIN_INIT_PROFILE:-prod}
