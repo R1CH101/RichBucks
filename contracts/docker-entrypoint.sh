@@ -42,13 +42,13 @@ if [[ "$ok" -ne 1 ]]; then
 fi
 echo "RPC ready."
 
+export ADDR="$DEPLOYER_ADDR"
 BAL="$(node -e "
-  const addr=process.env.ADDR;
   fetch(process.env.RPC_URL,{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[addr,'latest']})})
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[process.env.ADDR,'latest']})})
     .then(r=>r.json()).then(j=>{ console.log(j.result||'0x0'); })
     .catch(()=>{ console.log('0x0'); process.exit(1); });
-" ADDR="$DEPLOYER_ADDR")"
+")"
 echo "Deployer balance: $BAL"
 if [[ "$BAL" == "0x0" || "$BAL" == "0x" ]]; then
   echo "WARNING: deployer has zero native balance." >&2
@@ -57,7 +57,8 @@ if [[ "$BAL" == "0x0" || "$BAL" == "0x" ]]; then
 fi
 
 cd /app
-# Persist OZ upgrades manifest across redeploys (needed for later UUPS upgrades)
+# Persist OZ upgrades manifest across redeploys (needed for later UUPS upgrades).
+# Stale files here cause: InvalidDeployment / No contract at address (Removed from manifest)
 mkdir -p "$NETWORK_DIR/openzeppelin"
 rm -rf /app/.openzeppelin
 ln -sfn "$NETWORK_DIR/openzeppelin" /app/.openzeppelin

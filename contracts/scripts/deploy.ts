@@ -42,6 +42,35 @@ async function ensureWelcomeMinter(proxy: { welcomeMinter: () => Promise<string>
   console.log("setWelcomeMinter →", minter);
 }
 
+/** OZ upgrades cache on the volume; stale after chain wipe / failed partial deploy. */
+function openzeppelinDir(): string {
+  return path.join(networkDir(), "openzeppelin");
+}
+
+function clearOpenzeppelinManifest(): void {
+  const dir = openzeppelinDir();
+  if (!fs.existsSync(dir)) return;
+  for (const name of fs.readdirSync(dir)) {
+    fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+  }
+  console.log("Cleared stale OpenZeppelin upgrades manifest in", dir);
+}
+
+function isInvalidDeploymentError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /InvalidDeployment|No contract at address|Removed from manifest/i.test(msg);
+}
+
+async function deployProxyFresh(deployer: { address: string }, treasury: string) {
+  const RichBucks = await ethers.getContractFactory("RichBucks");
+  const proxy = await upgrades.deployProxy(RichBucks, [deployer.address, treasury], {
+    kind: "uups",
+    initializer: "initialize",
+  });
+  await proxy.waitForDeployment();
+  return proxy;
+}
+
 async function main() {
   const signers = await ethers.getSigners();
   if (!signers.length) {
@@ -73,16 +102,25 @@ async function main() {
         await ensureWelcomeMinter(proxy);
         return;
       }
-      console.log("Stale address in", addrFile, "(no code) — redeploying.");
+      console.log("Stale address in", addrFile, "(no code) — clearing OZ manifest and redeploying.");
+      try {
+        fs.unlinkSync(addrFile);
+      } catch {
+        /* ignore */
+      }
+      clearOpenzeppelinManifest();
     }
   }
 
-  const RichBucks = await ethers.getContractFactory("RichBucks");
-  const proxy = await upgrades.deployProxy(RichBucks, [deployer.address, treasury], {
-    kind: "uups",
-    initializer: "initialize",
-  });
-  await proxy.waitForDeployment();
+  let proxy;
+  try {
+    proxy = await deployProxyFresh(deployer, treasury);
+  } catch (e) {
+    if (!isInvalidDeploymentError(e)) throw e;
+    console.warn("Stale OpenZeppelin manifest — clearing and retrying once.");
+    clearOpenzeppelinManifest();
+    proxy = await deployProxyFresh(deployer, treasury);
+  }
 
   const address = await proxy.getAddress();
   writeAddress(address);
