@@ -68,9 +68,11 @@ Coolify / reverse-proxy map:
 |---|---|---|
 | `admin.richbucks.xyz` | `admin:3000` | `/` |
 | `bot.richbucks.xyz` | `bot:3978` | `/` (Teams needs `/api/messages`) |
-| `rpc.richbucks.xyz` | `rpc-filter:8549` | `/` |
+| `rpc.richbucks.xyz` | `rpc-filter` → Coolify Domains `https://rpc.richbucks.xyz:8549` | `/` |
 
-Keep validator RPC (`8545`) **off** the public internet. Only `rpc-filter` is published (ETH/NET/WEB3 allowlist — **no QBFT**). Cloudflare SSL: **Full (strict)**.
+`rpc-filter`, `bot`, and `admin` are in the **root** compose so Coolify lists them for Domains. Use the container port in the Domains field (`:3978`, `:3000`, `:8549`); visitors still use normal HTTPS. Prefer `expose` over host `ports:`.
+
+Keep validator RPC (`8545`) **off** the public internet. Only `rpc-filter` is proxied (ETH/NET/WEB3 allowlist — **no QBFT**). Cloudflare SSL: **Full (strict)**. Pass `RPC_API_KEY` as `x-api-key` / Bearer on public RPC.
 
 After contract deploy, set a **separate** `WELCOME_MINTER_PRIVATE_KEY` for the bot and call `setWelcomeMinter(minterAddress)` from the owner key (admin) so the bot cannot upgrade the contract.
 
