@@ -26,6 +26,8 @@ const config: HardhatUserConfig = {
       // and non-zero eth_gasPrice guesses don't brick deploy.
       gasPrice: 0,
       gas: 12_000_000,
+      // QBFT can sit a while if peers are still joining after compose up.
+      timeout: 600_000,
     },
   },
 };

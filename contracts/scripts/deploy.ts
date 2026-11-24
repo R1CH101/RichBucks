@@ -66,6 +66,9 @@ async function deployProxyFresh(deployer: { address: string }, treasury: string)
   const proxy = await upgrades.deployProxy(RichBucks, [deployer.address, treasury], {
     kind: "uups",
     initializer: "initialize",
+    // Wait through slow QBFT finalization / peer join (0 = indefinite in OZ).
+    timeout: 0,
+    pollingInterval: 2000,
   });
   await proxy.waitForDeployment();
   return proxy;

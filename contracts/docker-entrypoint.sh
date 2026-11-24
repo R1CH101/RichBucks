@@ -42,6 +42,29 @@ if [[ "$ok" -ne 1 ]]; then
 fi
 echo "RPC ready."
 
+# QBFT needs a majority of the 4 validators. Wait for peers before deploy txs.
+echo "Waiting for validator peers (net_peerCount >= 2) ..."
+peers_ok=0
+for _ in $(seq 1 60); do
+  PEERS="$(node -e "
+    fetch(process.env.RPC_URL,{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'net_peerCount',params:[]})})
+      .then(r=>r.json()).then(j=>{ console.log(j.result||'0x0'); })
+      .catch(()=>console.log('0x0'));
+  ")"
+  PEERS_DEC=$((PEERS))
+  echo "  peers=$PEERS_DEC"
+  if [[ "$PEERS_DEC" -ge 2 ]]; then
+    peers_ok=1
+    break
+  fi
+  sleep 3
+done
+if [[ "$peers_ok" -ne 1 ]]; then
+  echo "WARNING: only $PEERS_DEC peer(s) after waiting — QBFT may not finalize txs." >&2
+  echo "Check bootnode.enode and validator-2/3/4 logs. Continuing anyway." >&2
+fi
+
 export ADDR="$DEPLOYER_ADDR"
 BAL="$(node -e "
   fetch(process.env.RPC_URL,{method:'POST',headers:{'content-type':'application/json'},
