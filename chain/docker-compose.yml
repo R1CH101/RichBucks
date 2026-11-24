@@ -5,20 +5,20 @@
 # chain-init writes on first boot. Validators are NOT host-published.
 
 x-besu-common: &besu-common
-  image: hyperledger/besu:${BESU_VERSION:-25.1.0}
+  image: hyperledger/besu:${BESU_IMAGE_TAG:-25.1.0}
   restart: unless-stopped
   networks:
     - richbucks
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
+  # Coolify injects BESU_VERSION; Besu maps it to boolean --version and crashes
+  entrypoint: ["env", "-u", "BESU_VERSION", "/opt/besu/bin/besu-entry.sh"]
 
 services:
   chain-init:
     build:
       context: .
       dockerfile: init/Dockerfile
-      args:
-        BESU_VERSION: ${BESU_VERSION:-25.1.0}
     image: ghcr.io/${GHCR_OWNER:-richbucks}/chain-init:${TAG:-latest}
     restart: "no"
     user: "0:0"
@@ -68,8 +68,8 @@ services:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8545'"]
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 20s
+      retries: 18
+      start_period: 40s
 
   validator-2:
     <<: *besu-common

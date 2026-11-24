@@ -95,7 +95,7 @@ Below: meaning, example shape, and how to generate / obtain each value.
 | `CHAIN_ID` | `88420` | Fixed for RichBucks — leave as-is |
 | `RPC_URL` | `http://validator-1:8545` | Internal Docker DNS. From a laptop tunnel use `http://127.0.0.1:8545` |
 | `PUBLIC_RPC_URL` | `https://rpc.richbucks.xyz` | Your public HTTPS RPC hostname |
-| `BESU_VERSION` | `25.1.0` | Pin; match `chain/docker-compose.yml` |
+| `BESU_IMAGE_TAG` | `25.1.0` | Pin Besu image tag (never use env name `BESU_VERSION`) |
 | `EMPTY_BLOCK_PERIOD_SECONDS` | `3600` | Prod heartbeat. Dev genesis uses `30` via `init-network.sh dev` |
 | `BOOTNODE_ENODE` | `enode://abc…@validator-1:30303` | After validator-1 is up: `./chain/scripts/print-bootnode.sh` (rewrites host to `validator-1`) |
 
@@ -325,7 +325,7 @@ openssl rand -hex 24   # NODE_JOIN_API_KEY
 CHAIN_ID=88420
 RPC_URL=http://validator-1:8545
 PUBLIC_RPC_URL=https://rpc.richbucks.xyz
-BESU_VERSION=25.1.0
+BESU_IMAGE_TAG=25.1.0
 
 DEPLOYER_PRIVATE_KEY=0x1111111111111111111111111111111111111111111111111111111111111111
 DEPLOYER_ADDRESS=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
