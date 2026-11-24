@@ -87,11 +87,14 @@ export function buildTeamsManifest(
     },
     name: {
       short: "RichBucks",
-      full: app.label ? `RichBucks (${app.label})` : "RichBucks bot",
+      // Version in full name so Teams Admin / client show the upload landed
+      full: app.label
+        ? `RichBucks (${app.label}) v${version}`
+        : `RichBucks bot v${version}`,
     },
     description: {
-      short: "Tip RichBucks in Teams",
-      full: "Tip coworkers with /give, check /balance, transfer with /send, and view the leaderboard. Private company chain token (RB).",
+      short: `Tip RichBucks in Teams (v${version})`,
+      full: `Tip coworkers with /give, check /balance, transfer with /send, and view the leaderboard. Private company chain token (RB). Package v${version}.`,
     },
     icons: {
       color: "color.png",
@@ -142,9 +145,10 @@ export async function buildTeamsAppZip(
     compressionOptions: { level: 9 },
   });
   const safe = (app.label || "app").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 40);
+  const ver = String(manifest.version).replace(/[^0-9.]+/g, "");
   return {
     zip: buf,
-    filename: `RichBucks-teams-${safe}.zip`,
+    filename: `RichBucks-teams-${safe}-v${ver}.zip`,
     version: String(manifest.version),
     packageId: String(manifest.id),
   };

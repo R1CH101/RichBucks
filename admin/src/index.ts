@@ -9,7 +9,12 @@ import fs from "fs";
 import path from "path";
 import { assertAdminSecrets, isProduction } from "./secrets";
 import { clientIp, ipAllowed, isLoopback, parseAllowlist } from "./ipAllowlist";
-import { TeamsAppsStore, teamsConfigDir, teamsConfigSecret } from "./teamsAppsStore";
+import {
+  TeamsAppsStore,
+  nextPackageVersion,
+  teamsConfigDir,
+  teamsConfigSecret,
+} from "./teamsAppsStore";
 import { buildTeamsAppZip, buildTeamsManifest } from "./teamsPackage";
 import { resolveContractAddress } from "./resolveContractAddress";
 import { listWallets } from "./walletDirectory";
@@ -453,15 +458,21 @@ app.get("/teams-apps", requireAuth, (req, res) => {
         return "bot.richbucks.xyz";
       }
     })();
+  const flash = takeFlash(req);
   const rows = apps.length
     ? apps
-        .map(
-          (a) => `<tr>
+        .map((a) => {
+          const last = a.packageVersion || "—";
+          const next = nextPackageVersion(a.packageVersion);
+          return `<tr>
           <td>${escapeHtml(a.label)}</td>
           <td><code>${escapeHtml(a.appId)}</code></td>
-          <td><code>${escapeHtml(a.tenantId)}</code></td>
+          <td>
+            <div><strong>v${escapeHtml(String(last))}</strong></div>
+            <div class="muted">next download → <code>v${escapeHtml(next)}</code></div>
+          </td>
           <td style="white-space:nowrap">
-            <a class="btn" style="margin-top:0;padding:0.4rem 0.7rem;font-size:0.85rem" href="/teams-apps/${escapeHtml(a.id)}/package.zip">Download zip</a>
+            <a class="btn" style="margin-top:0;padding:0.4rem 0.7rem;font-size:0.85rem" href="/teams-apps/${escapeHtml(a.id)}/package.zip">Download zip (bumps version)</a>
             <a class="btn" style="margin-top:0;padding:0.4rem 0.7rem;font-size:0.85rem;background:#2a3a30;color:var(--text)" href="/teams-apps/${escapeHtml(a.id)}/manifest.json">manifest.json</a>
             <form method="post" action="/teams-apps/delete" style="display:inline">
               ${csrfField(req)}
@@ -469,8 +480,8 @@ app.get("/teams-apps", requireAuth, (req, res) => {
               <button type="submit" onclick="return confirm('Remove this Teams app?')">Delete</button>
             </form>
           </td>
-        </tr>`
-        )
+        </tr>`;
+        })
         .join("")
     : `<tr><td colspan="4" class="muted">No apps yet — add your personal and/or company bot registrations below.</td></tr>`;
 
@@ -482,15 +493,14 @@ app.get("/teams-apps", requireAuth, (req, res) => {
       <p class="sub">Each single-tenant Azure Bot / app registration that should hit this RichBucks bot. Same messaging URL for all: <code>https://${escapeHtml(botHost)}/api/messages</code>. Passwords are stored encrypted; never shown again after save.</p>
       <div class="card">
         <h2>Teams app package</h2>
-        <p class="muted">For each saved app, download a ready-to-upload zip (<code>manifest.json</code> + icons). Upload in Teams Admin → Manage apps → Upload an app. Azure Bot messaging endpoint must be <code>https://${escapeHtml(botHost)}/api/messages</code>.</p>
-        <p class="muted"><strong>Group chats:</strong> open the chat → … → Add apps → RichBucks (or @mention RichBucks and add when prompted). <strong>Team channels:</strong> go to the team → Apps / Manage team → Apps → add RichBucks, then @mention it in the channel once. Personal scope alone is not enough — the package includes <code>groupChat</code> + <code>team</code> scopes and <code>webApplicationInfo</code>.</p>
-        <p class="muted">Icons are bundled automatically. Package <code>id</code> stays stable (so re-upload <strong>updates</strong> the same org app); <code>version</code> bumps each download. <code>bots[0].botId</code> / <code>webApplicationInfo.id</code> = Application (client) ID.</p>
-        <p class="muted"><strong>Group chat install:</strong> after download, update the <em>existing</em> org app in Teams Admin (same package id, new version) or Developer Portal → Publish to org. Accept <strong>Update</strong> in the Teams client if prompted. Then Apps → RichBucks → Add → pick a <em>chat</em> (not only Open), or in the group use <strong>Add agents and bots</strong> / <code>@RichBucks</code>.</p>
+        <p class="muted">Download bumps <code>manifest.version</code> every time (and puts it in the zip filename + app full name). After upload, Teams Admin → Manage apps → RichBucks should show that same version — if it doesn’t, the replace didn’t land.</p>
+        <p class="muted">Package <code>id</code> stays stable. Azure messaging endpoint: <code>https://${escapeHtml(botHost)}/api/messages</code>.</p>
+        <p class="muted"><strong>Group chat:</strong> update the existing org app with the new zip → accept Update in Teams → Apps → RichBucks → Add → pick a chat (or Add agents and bots / <code>@RichBucks</code>).</p>
       </div>
       <div class="card">
         <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
           <thead><tr>
-            <th align="left">Label</th><th align="left">App ID</th><th align="left">Tenant ID</th><th align="left">Package</th>
+            <th align="left">Label</th><th align="left">App ID</th><th align="left">Package version</th><th align="left">Download</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -503,7 +513,8 @@ app.get("/teams-apps", requireAuth, (req, res) => {
         <label>Client secret</label><input name="appPassword" type="password" required autocomplete="new-password" />
         <label>Directory (tenant) ID</label><input name="tenantId" required />
         <button type="submit">Save app</button>
-      </form>`
+      </form>`,
+      flash
     )
   );
 });
@@ -525,9 +536,11 @@ app.get("/teams-apps/:id/package.zip", requireAuth, async (req, res) => {
       },
       { packageId, version: packageVersion }
     );
+    setFlash(req, "ok", `Packaged v${packageVersion} — upload this zip in Teams Admin and confirm that version shows on RichBucks.`);
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-RichBucks-Package-Version", packageVersion);
     res.send(zip);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

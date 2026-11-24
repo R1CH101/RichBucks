@@ -38,14 +38,29 @@ function normalizeGuid(s: string): string {
   return s.trim().toLowerCase();
 }
 
-function bumpSemver(v: string): string {
+/** Always produce a higher semver so Teams Admin accepts the replace. */
+export function bumpSemver(v: string): string {
   const parts = String(v || "1.0.0")
     .split(".")
     .map((x) => Number.parseInt(x, 10));
-  const major = Number.isFinite(parts[0]) ? parts[0]! : 1;
-  const minor = Number.isFinite(parts[1]) ? parts[1]! : 0;
-  const patch = Number.isFinite(parts[2]) ? parts[2]! : 0;
-  return `${major}.${minor}.${patch + 1}`;
+  let major = Number.isFinite(parts[0]) ? parts[0]! : 1;
+  let minor = Number.isFinite(parts[1]) ? parts[1]! : 0;
+  let patch = Number.isFinite(parts[2]) ? parts[2]! : 0;
+  patch += 1;
+  if (patch > 9999) {
+    patch = 0;
+    minor += 1;
+  }
+  if (minor > 9999) {
+    minor = 0;
+    major += 1;
+  }
+  return `${major}.${minor}.${patch}`;
+}
+
+/** Preview the next version without persisting (for Admin UI). */
+export function nextPackageVersion(current?: string): string {
+  return bumpSemver(current || "1.0.0");
 }
 
 /**
