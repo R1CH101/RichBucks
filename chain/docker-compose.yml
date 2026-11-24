@@ -152,31 +152,6 @@ services:
     expose:
       - "8545"
 
-  # Public wallet RPC — method allowlist (no QBFT/admin)
-  rpc-filter:
-    build: ./rpc-filter
-    image: ghcr.io/${GHCR_OWNER:-richbucks}/rpc-filter:${TAG:-latest}
-    container_name: rb-rpc-filter
-    restart: unless-stopped
-    depends_on:
-      validator-1:
-        condition: service_healthy
-    environment:
-      PORT: 8549
-      UPSTREAM_RPC: http://validator-1:8545
-      RPC_API_KEY: ${RPC_API_KEY:-}
-      RPC_REQUIRE_API_KEY: ${RPC_REQUIRE_API_KEY:-true}
-      RPC_RATE_MAX: ${RPC_RATE_MAX:-120}
-    ports:
-      - "8549:8549"
-    networks:
-      - richbucks
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8549/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 3s
-      retries: 6
-
 volumes:
   chain-network:
     name: ${COMPOSE_PROJECT_NAME:-richbucks}_chain-network
