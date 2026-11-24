@@ -9,6 +9,9 @@ export type TeamsApp = {
   appPassword: string;
   tenantId: string;
   createdAt: number;
+  /** Stable Teams package GUID (admin-managed; preserved on shared config volume). */
+  packageId?: string;
+  packageVersion?: string;
 };
 
 export type TeamsAppPublic = Omit<TeamsApp, "appPassword">;

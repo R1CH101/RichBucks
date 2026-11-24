@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import JSZip from "jszip";
@@ -38,11 +37,15 @@ function websiteBase(): string {
 }
 
 /** Build a Teams app manifest for one registered Azure Bot / app. */
-export function buildTeamsManifest(app: TeamsAppPublic, opts?: { version?: string; packageId?: string }) {
+export function buildTeamsManifest(
+  app: TeamsAppPublic,
+  opts?: { version?: string; packageId?: string }
+) {
   const site = websiteBase();
   const host = botPublicHost();
-  const packageId = opts?.packageId || crypto.randomUUID();
-  const version = opts?.version || "1.0.0";
+  // Stable id = packageId (persisted) or Azure app id — never random per download
+  const packageId = opts?.packageId || app.packageId || app.appId;
+  const version = opts?.version || app.packageVersion || "1.0.0";
 
   return {
     $schema: "https://developer.microsoft.com/json-schemas/teams/v1.30/MicrosoftTeams.schema.json",
@@ -51,6 +54,11 @@ export function buildTeamsManifest(app: TeamsAppPublic, opts?: { version?: strin
     id: packageId,
     // Shared / private channel readiness (required on upload in many tenants)
     supportsChannelFeatures: "tier1",
+    // Makes "Add to a chat / team" the default capability instead of only Open (1:1)
+    defaultGroupCapability: {
+      team: "bot",
+      groupchat: "bot",
+    },
     developer: {
       name: "RichBucks",
       websiteUrl: site,
@@ -102,11 +110,14 @@ export function buildTeamsManifest(app: TeamsAppPublic, opts?: { version?: strin
   };
 }
 
-export async function buildTeamsAppZip(app: TeamsAppPublic): Promise<{ zip: Buffer; filename: string }> {
+export async function buildTeamsAppZip(
+  app: TeamsAppPublic,
+  opts?: { version?: string; packageId?: string }
+): Promise<{ zip: Buffer; filename: string; version: string; packageId: string }> {
   const dir = assetsDir();
   const color = fs.readFileSync(path.join(dir, "color.png"));
   const outline = fs.readFileSync(path.join(dir, "outline.png"));
-  const manifest = buildTeamsManifest(app);
+  const manifest = buildTeamsManifest(app, opts);
   const zip = new JSZip();
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   zip.file("color.png", color);
@@ -120,5 +131,7 @@ export async function buildTeamsAppZip(app: TeamsAppPublic): Promise<{ zip: Buff
   return {
     zip: buf,
     filename: `RichBucks-teams-${safe}.zip`,
+    version: String(manifest.version),
+    packageId: String(manifest.id),
   };
 }

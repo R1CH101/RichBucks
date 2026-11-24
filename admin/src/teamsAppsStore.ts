@@ -9,6 +9,10 @@ export type TeamsApp = {
   appPassword: string;
   tenantId: string;
   createdAt: number;
+  /** Stable Teams package GUID — must stay fixed across re-uploads so scopes update. */
+  packageId?: string;
+  /** Bumped on each zip download (Teams requires a higher version to replace). */
+  packageVersion?: string;
 };
 
 export type TeamsAppPublic = Omit<TeamsApp, "appPassword">;
@@ -32,6 +36,16 @@ function deriveKey(secret: string, salt: Buffer): Buffer {
 
 function normalizeGuid(s: string): string {
   return s.trim().toLowerCase();
+}
+
+function bumpSemver(v: string): string {
+  const parts = String(v || "1.0.0")
+    .split(".")
+    .map((x) => Number.parseInt(x, 10));
+  const major = Number.isFinite(parts[0]) ? parts[0]! : 1;
+  const minor = Number.isFinite(parts[1]) ? parts[1]! : 0;
+  const patch = Number.isFinite(parts[2]) ? parts[2]! : 0;
+  return `${major}.${minor}.${patch + 1}`;
 }
 
 /**
@@ -143,6 +157,22 @@ export class TeamsAppsStore {
     if (next.length === apps.length) return false;
     this.save(next);
     return true;
+  }
+
+  /**
+   * Keep Teams package `id` stable; bump `version` so Admin Center can replace the app
+   * (fresh random package IDs create orphan apps that stay personal-only).
+   */
+  bumpPackage(id: string): { packageId: string; packageVersion: string } {
+    const apps = this.load();
+    const idx = apps.findIndex((a) => a.id === id);
+    if (idx < 0) throw new Error("app not found");
+    const prev = apps[idx]!;
+    const packageId = prev.packageId || prev.appId;
+    const packageVersion = bumpSemver(prev.packageVersion || "1.0.0");
+    apps[idx] = { ...prev, packageId, packageVersion };
+    this.save(apps);
+    return { packageId, packageVersion };
   }
 
   private load(): TeamsApp[] {

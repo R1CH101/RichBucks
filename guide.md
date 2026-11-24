@@ -258,9 +258,14 @@ zip -j RichBucks-teams.zip manifest.json color.png outline.png
 
 **5. Add to the chat**
 
-1. Open the target group chat or team.  
-2. **Apps** / **+** → find **RichBucks** → **Add**.  
-3. Confirm the bot can post in that chat.  
+Do **not** only click **Open** (that is 1:1). After the org app is uploaded/updated:
+
+1. Left rail **Apps** → **Built for your org** / **Added by your org** → **RichBucks**.  
+2. On the Add button, open the menu → **Add to a chat** (or **Add to a team**) → pick the group.  
+3. Or in the group compose box type `@RichBucks` → when Teams offers to add the app, confirm.  
+4. Then `@RichBucks /help` (group bots only see @mentions unless you enable RSC later).
+
+If the app only offers **Open**: the installed package is still personal-scoped or stale. Re-upload the zip in Teams Admin **on the existing RichBucks app** (same package `id`, higher `version`) — Admin → Teams apps → Download zip does this. Availability → everyone, then wait a few minutes / restart Teams.
 
 **6. Verify Azure ↔ Teams**
 

@@ -484,7 +484,8 @@ app.get("/teams-apps", requireAuth, (req, res) => {
         <h2>Teams app package</h2>
         <p class="muted">For each saved app, download a ready-to-upload zip (<code>manifest.json</code> + icons). Upload in Teams Admin → Manage apps → Upload an app. Azure Bot messaging endpoint must be <code>https://${escapeHtml(botHost)}/api/messages</code>.</p>
         <p class="muted"><strong>Group chats:</strong> open the chat → … → Add apps → RichBucks (or @mention RichBucks and add when prompted). <strong>Team channels:</strong> go to the team → Apps / Manage team → Apps → add RichBucks, then @mention it in the channel once. Personal scope alone is not enough — the package includes <code>groupChat</code> + <code>team</code> scopes and <code>webApplicationInfo</code>.</p>
-        <p class="muted">Icons are bundled automatically. Package GUID is fresh on every download; <code>bots[0].botId</code> and <code>webApplicationInfo.id</code> are set to that app’s Application (client) ID.</p>
+        <p class="muted">Icons are bundled automatically. Package <code>id</code> stays stable (so re-upload <strong>updates</strong> the same org app); <code>version</code> bumps each download. <code>bots[0].botId</code> / <code>webApplicationInfo.id</code> = Application (client) ID.</p>
+        <p class="muted"><strong>If Add only shows “Open” (1:1):</strong> Teams Admin → Manage apps → RichBucks → Upload file / replace with this zip (same package id) → set Available to everyone → wait a few minutes. Then Apps → RichBucks → Add → <em>Add to a chat</em> (not Open), or in the group type <code>@RichBucks</code> and confirm Add.</p>
       </div>
       <div class="card">
         <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
@@ -511,13 +512,19 @@ app.get("/teams-apps/:id/package.zip", requireAuth, async (req, res) => {
   const app = teamsApps.getById(String(req.params.id || ""));
   if (!app) return res.status(404).send(layout("Teams apps", `<p class="err">App not found.</p>`));
   try {
-    const { zip, filename } = await buildTeamsAppZip({
-      id: app.id,
-      label: app.label,
-      appId: app.appId,
-      tenantId: app.tenantId,
-      createdAt: app.createdAt,
-    });
+    const { packageId, packageVersion } = teamsApps.bumpPackage(app.id);
+    const { zip, filename } = await buildTeamsAppZip(
+      {
+        id: app.id,
+        label: app.label,
+        appId: app.appId,
+        tenantId: app.tenantId,
+        createdAt: app.createdAt,
+        packageId,
+        packageVersion,
+      },
+      { packageId, version: packageVersion }
+    );
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Cache-Control", "no-store");
@@ -531,13 +538,27 @@ app.get("/teams-apps/:id/package.zip", requireAuth, async (req, res) => {
 app.get("/teams-apps/:id/manifest.json", requireAuth, (req, res) => {
   const app = teamsApps.getById(String(req.params.id || ""));
   if (!app) return res.status(404).json({ error: "not found" });
-  const manifest = buildTeamsManifest({
-    id: app.id,
-    label: app.label,
-    appId: app.appId,
-    tenantId: app.tenantId,
-    createdAt: app.createdAt,
-  });
+  let packageId = app.packageId || app.appId;
+  let packageVersion = app.packageVersion || "1.0.0";
+  try {
+    const bumped = teamsApps.bumpPackage(app.id);
+    packageId = bumped.packageId;
+    packageVersion = bumped.packageVersion;
+  } catch {
+    /* keep defaults */
+  }
+  const manifest = buildTeamsManifest(
+    {
+      id: app.id,
+      label: app.label,
+      appId: app.appId,
+      tenantId: app.tenantId,
+      createdAt: app.createdAt,
+      packageId,
+      packageVersion,
+    },
+    { packageId, version: packageVersion }
+  );
   res.setHeader("Content-Type", "application/json");
   res.setHeader(
     "Content-Disposition",
