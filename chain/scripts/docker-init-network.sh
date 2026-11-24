@@ -3,7 +3,12 @@
 # Idempotent when genesis + validator-1 key already exist.
 set -euo pipefail
 
-echo "==== chain-init begin pid=$$ ===="
+LOG="${NETWORK_DIR:-/network}/chain-init.log"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+# Mirror everything to the volume so Coolify failures are still diagnosable
+exec > >(tee -a "$LOG") 2>&1
+
+echo "==== chain-init begin pid=$$ ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) ===="
 echo "args: $*"
 echo "profile=${PROFILE:-} network_dir=${NETWORK_DIR:-} deployer_set=${DEPLOYER_ADDRESS:+yes} treasury_set=${TREASURY_ADDRESS:+yes}"
 
@@ -11,7 +16,7 @@ PROFILE="${PROFILE:-prod}"
 OUT="${NETWORK_DIR:-/network}"
 CONFIG="${QBFT_CONFIG:-/qbft/qbftConfig.${PROFILE}.json}"
 DEPLOYER="${DEPLOYER_ADDRESS:-${TREASURY_ADDRESS:-}}"
-DEPLOYER="$(echo -n "$DEPLOYER" | tr -d '[:space:]"'"'"'')"
+DEPLOYER="$(printf '%s' "$DEPLOYER" | tr -d '[:space:]"'"'"'')"
 
 echo "besu=$(command -v besu || echo MISSING) jq=$(command -v jq || echo MISSING) bash=$BASH_VERSION"
 echo "config=$CONFIG out=$OUT"
@@ -26,14 +31,14 @@ mkdir -p "$OUT"
 
 if [[ -f "$OUT/genesis.json" && -f "$OUT/validator-1/data/key" ]]; then
   echo "Network already initialized at $OUT — skipping."
+  echo "==== chain-init success (idempotent) ===="
   exit 0
 fi
 
 # Heal partial volume from a previous failed init
 if [[ -f "$OUT/genesis.json" || -d "$OUT/validator-1" || -d "$OUT/.generate" ]]; then
   echo "Partial/incomplete network state detected — clearing $OUT for a clean init."
-  # Keep the mount point; delete contents only
-  find "$OUT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  find "$OUT" -mindepth 1 -maxdepth 1 ! -name 'chain-init.log' -exec rm -rf {} +
 fi
 
 echo "Generating blockchain config (profile=$PROFILE) ..."
@@ -42,7 +47,7 @@ mkdir -p "$WORKDIR"
 cp "$CONFIG" "$WORKDIR/qbftConfig.work.json"
 
 if [[ -n "$DEPLOYER" ]]; then
-  ADDR="$(echo "$DEPLOYER" | tr '[:upper:]' '[:lower:]')"
+  ADDR="$(printf '%s' "$DEPLOYER" | tr '[:upper:]' '[:lower:]')"
   if [[ "$ADDR" != 0x* ]]; then
     ADDR="0x${ADDR}"
   fi

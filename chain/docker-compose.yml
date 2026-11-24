@@ -21,8 +21,9 @@ services:
         BESU_VERSION: ${BESU_VERSION:-25.1.0}
     image: ghcr.io/${GHCR_OWNER:-richbucks}/chain-init:${TAG:-latest}
     restart: "no"
-    entrypoint: ["/bin/bash"]
-    command: ["/docker-init-network.sh"]
+    # Image ENTRYPOINT is a bash wrapper (not besu). Do not set `command` —
+    # Coolify would pass it to a restored besu entrypoint → exit 2.
+    entrypoint: ["/chain-init-entrypoint.sh"]
     environment:
       PROFILE: ${CHAIN_INIT_PROFILE:-prod}
       NETWORK_DIR: /network
