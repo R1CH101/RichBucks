@@ -82,8 +82,12 @@ else
   echo "WARNING: DEPLOYER_ADDRESS/TREASURY_ADDRESS unset — genesis will not prefund a deployer." >&2
 fi
 
+# Coolify injects BESU_VERSION=25.1.0 into every container. Besu/picocli maps
+# that env name to the boolean --version flag → "25.1.0 is not a boolean".
+unset BESU_VERSION || true
+
 set -x
-"$BESU_BIN" operator generate-blockchain-config \
+env -u BESU_VERSION "$BESU_BIN" operator generate-blockchain-config \
   --config-file="$WORKDIR/qbftConfig.work.json" \
   --to="$WORKDIR/generated" \
   --private-key-file-name=key
