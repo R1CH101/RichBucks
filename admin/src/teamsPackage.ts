@@ -45,10 +45,12 @@ export function buildTeamsManifest(app: TeamsAppPublic, opts?: { version?: strin
   const version = opts?.version || "1.0.0";
 
   return {
-    $schema: "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
-    manifestVersion: "1.16",
+    $schema: "https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
+    manifestVersion: "1.25",
     version,
     id: packageId,
+    // Required for upload: declare Shared/Private channel readiness (bots/tabs).
+    supportsChannelFeatures: "tier1",
     developer: {
       name: "RichBucks",
       websiteUrl: site,
