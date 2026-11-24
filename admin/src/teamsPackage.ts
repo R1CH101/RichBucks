@@ -36,28 +36,47 @@ function websiteBase(): string {
   return (process.env.PUBLIC_WEBSITE_URL || "https://richbucks.xyz").replace(/\/$/, "");
 }
 
-/** Build a Teams app manifest for one registered Azure Bot / app. */
+/**
+ * Teams app manifest aligned with schema 1.30 + current Microsoft bot/group-chat guidance:
+ * - bots.scopes includes groupChat + team
+ * - defaultInstallScope / defaultGroupCapability so Add offers chat (not only Open)
+ * - supportsTargetedMessages + slash/mention triggers for group compose
+ * - stable package id (caller must pass packageId; never randomize per download)
+ *
+ * @see https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/deploy-and-publish/add-default-install-scope
+ * @see https://learn.microsoft.com/en-us/microsoftteams/platform/agents-in-teams/agent-slash-commands
+ */
 export function buildTeamsManifest(
   app: TeamsAppPublic,
   opts?: { version?: string; packageId?: string }
 ) {
   const site = websiteBase();
   const host = botPublicHost();
-  // Stable id = packageId (persisted) or Azure app id — never random per download
   const packageId = opts?.packageId || app.packageId || app.appId;
   const version = opts?.version || app.packageVersion || "1.0.0";
+
+  const commands = [
+    { title: "help", description: "Show RichBucks commands" },
+    { title: "balance", description: "Show your RB balance" },
+    { title: "give", description: "Tip 1 RB to @someone or email" },
+    { title: "send", description: "Send whole RB to @someone or email" },
+    { title: "leaderboard", description: "Top tippers and earners" },
+    { title: "export-wallet", description: "DM only: export key" },
+  ];
 
   return {
     $schema: "https://developer.microsoft.com/json-schemas/teams/v1.30/MicrosoftTeams.schema.json",
     manifestVersion: "1.30",
     version,
     id: packageId,
-    // Shared / private channel readiness (required on upload in many tenants)
     supportsChannelFeatures: "tier1",
-    // Makes "Add to a chat / team" the default capability instead of only Open (1:1)
+    // Recommended install target in the Add dialog (chat, not personal-only Open)
+    defaultInstallScope: "groupChat",
+    // Schema key is lowercase "groupchat" (not groupChat) — see json-schemas#188
     defaultGroupCapability: {
       team: "bot",
       groupchat: "bot",
+      meetings: "bot",
     },
     developer: {
       name: "RichBucks",
@@ -85,24 +104,19 @@ export function buildTeamsManifest(
         scopes: ["personal", "groupChat", "team"],
         supportsFiles: false,
         isNotificationOnly: false,
+        // Required for / slash commands + targeted messages in group chats (manifest 1.29+)
+        supportsTargetedMessages: true,
         commandLists: [
           {
             scopes: ["personal", "groupChat", "team"],
-            commands: [
-              { title: "help", description: "Show RichBucks commands" },
-              { title: "balance", description: "Show your RB balance" },
-              { title: "give", description: "Tip 1 RB to @someone or email" },
-              { title: "send", description: "Send whole RB to @someone or email" },
-              { title: "leaderboard", description: "Top tippers and earners" },
-              { title: "export-wallet", description: "DM only: export key" },
-            ],
+            triggers: ["slash", "mention"],
+            commands,
           },
         ],
       },
     ],
     permissions: ["identity", "messageTeamMembers"],
     validDomains: [host],
-    // Binds the package to the Entra bot registration (needed for group chats / channels)
     webApplicationInfo: {
       id: app.appId,
       resource: "",

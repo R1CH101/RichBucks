@@ -256,23 +256,39 @@ zip -j RichBucks-teams.zip manifest.json color.png outline.png
 - **Company / production:** [Teams Admin Center](https://admin.teams.microsoft.com) → **Teams apps** → **Manage apps** → **Upload** → select the zip → allow for your org / specific users.  
 - **Sideload (dev):** Teams desktop → **Apps** → **Manage your apps** → **Upload a custom app** (requires org policy allowing sideloading).
 
-**5. Add to the chat**
+**5. Publish / update the org app (required for group chat)**
 
-Do **not** only click **Open** (that is 1:1). After the org app is uploaded/updated:
+Scopes live in the **catalog copy** Teams serves to clients. Updating a zip on disk is not enough if the org app is still an old definition.
 
-1. Left rail **Apps** → **Built for your org** / **Added by your org** → **RichBucks**.  
-2. On the Add button, open the menu → **Add to a chat** (or **Add to a team**) → pick the group.  
-3. Or in the group compose box type `@RichBucks` → when Teams offers to add the app, confirm.  
-4. Then `@RichBucks /help` (group bots only see @mentions unless you enable RSC later).
+1. Redeploy **admin**, then **Admin → Teams apps → Download zip** (stable package `id`, bumped `version`).  
+2. [Teams Admin Center](https://admin.teams.microsoft.com) → **Teams apps → Manage apps**:  
+   - Prefer **update the existing RichBucks** (same package id) — Upload / replace with the new zip.  
+   - Or Developer Portal → your app → **Publish → Publish to org**, then approve in Manage apps if pending.  
+3. App status **Allowed** / available to everyone (or your test users).  
+4. If you already had RichBucks installed personally: open the app → accept **Update** when prompted (scope changes often need user consent — [app update experience](https://learn.microsoft.com/en-us/microsoftteams/apps-update-experience)). Or uninstall and add again.  
+5. Restart Teams desktop (or wait a few minutes).
 
-If the app only offers **Open**: the installed package is still personal-scoped or stale. Re-upload the zip in Teams Admin **on the existing RichBucks app** (same package `id`, higher `version`) — Admin → Teams apps → Download zip does this. Availability → everyone, then wait a few minutes / restart Teams.
+**6. Add to a specific group chat**
 
-**6. Verify Azure ↔ Teams**
+Do **not** stop at **Open** (that is personal 1:1 only).
+
+Official flows ([default install scope](https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/deploy-and-publish/add-default-install-scope)):
+
+1. **Apps** → **Built for your org** → **RichBucks** → **Add** → in the scope dialog pick a **chat** (Recommended should be group chat) → **Go**.  
+2. Or open the group → compose **(+)** / **Add agents and bots** → search RichBucks → add.  
+3. Or type `@RichBucks` in the group and confirm Add when prompted.
+
+Then use `@RichBucks /help` or `/help` from the slash menu (manifest sets `supportsTargetedMessages` + slash triggers). In groups the bot only receives @mentions / targeted slash commands unless you add RSC later.
+
+If Add still only shows **Open**: the catalog app Teams sees is still personal-only — step 5 did not land (wrong package id / version not published / client cache). Confirm Manage apps shows the new version number.  
+
+**7. Verify Azure ↔ Teams**
 
 1. From Teams, send `/help` in a 1:1 with RichBucks.  
 2. Coolify **bot** logs should show a processed activity (no 401).  
 3. If 401 / unauthorized: App ID/secret/tenant mismatch, or the app isn’t listed under Admin → Teams apps / bootstrap env.  
-4. If the bot never receives traffic: messaging endpoint URL, Cloudflare SSL Full (strict), or Coolify domain not bound to `bot:3978`.
+4. If the bot never receives traffic: messaging endpoint URL, Cloudflare SSL Full (strict), or Coolify domain not bound to `bot:3978`.  
+5. Group chat: `@RichBucks /help` must produce a reply in that chat’s bot logs.
 
 ---
 
