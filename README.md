@@ -6,8 +6,6 @@ Repository: https://github.com/R1CH101/RichBucks
 
 Private zero-gas [Hyperledger Besu](https://github.com/hyperledger/besu) QBFT chain + **RichBucks (RB)** ERC-20 + Microsoft Teams custodial bot + admin UI.
 
-**Internal joke token — no cash value, not redeemable.**
-
 License: [AGPL-3.0-only](./LICENSE). Commercial use is allowed; modified versions (including network services) must provide complete corresponding source under AGPL.
 
 ## What’s in the box
@@ -95,6 +93,7 @@ Public/coworker P2P is **off in v1** (no open 30303; use VPN later). Company val
 ## Security
 
 - Do not commit `chain/network/` keys, `.env`, or wallet SQLite  
-- Keep validator QBFT RPC on the private Docker network; public RPC is rate-limited nginx → validator-1  
+- Keep validator QBFT RPC on the private Docker network; public RPC goes through `rpc-filter`  
+- Teams package: `bot/teams-manifest/` (`manifest.json`, `color.png`, `outline.png`)  
 - `/export-wallet CONFIRM` is DM-only (confirmation + hourly cooldown)  
 

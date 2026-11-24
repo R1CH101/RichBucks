@@ -69,7 +69,7 @@ const chain = new ChainClient(
 );
 
 const HELP = [
-  "**RichBucks** — internal joke token, no cash value.",
+  "**RichBucks** — private office token on your company chain.",
   "`/balance` — your RB + address (**DM**; in a group you'll get a private reply)",
   "`/give @Name [reason]` — tip **1 RB** once per day (minted; group or DM)",
   "`/send @Name <whole amount>` — transfer RB you hold (group or DM)",

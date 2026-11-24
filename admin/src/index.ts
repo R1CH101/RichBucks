@@ -147,7 +147,7 @@ function layout(title: string, body: string) {
 </style></head>
 <body><main>
 ${body}
-<p class="muted" style="margin-top:2rem">RichBucks admin · internal joke token · no cash value · AGPL-3.0</p>
+<p class="muted" style="margin-top:2rem">RichBucks admin · AGPL-3.0</p>
 </main></body></html>`;
 }
 

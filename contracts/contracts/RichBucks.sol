@@ -9,7 +9,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 
 /**
  * @title RichBucks (RB)
- * @notice Whole-number (0 decimals) office joke token on a private zero-gas Besu chain.
+ * @notice Whole-number (0 decimals) office token on a private zero-gas Besu chain.
  * @dev Daily tips and verifier rewards mint under maxSupply. Welcome/admin mint can be disabled for a public launch.
  */
 contract RichBucks is

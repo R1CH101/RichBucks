@@ -6,6 +6,5 @@ it under the terms of the GNU Affero General Public License as published
 by the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version — see LICENSE (AGPL-3.0).
 
-This software is provided for an internal joke / demonstration token with
-no cash value. Running a modified version as a network service requires
-offering complete corresponding source to users under the AGPL.
+Running a modified version as a network service requires offering complete
+corresponding source to users under the AGPL.

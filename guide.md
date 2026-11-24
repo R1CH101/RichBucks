@@ -1,8 +1,6 @@
 ﻿# RichBucks setup guide
 
-End-to-end guide to deploy RichBucks on a VPS (Coolify), wire Microsoft Teams, deploy the token contract, and optionally onboard coworker nodes.
-
-**Internal joke token — no cash value, not redeemable.**
+End-to-end guide to deploy RichBucks on a VPS (Coolify): private Besu chain, RichBucks (RB) token, Microsoft Teams bot, admin UI, and the Teams app package (manifest + icons).
 
 Repo: https://github.com/R1CH101/RichBucks
 
@@ -175,33 +173,92 @@ RichBucks accepts **multiple single-tenant** Azure Bot / app registrations (e.g.
 
 #### How to create the Azure Bot (step by step)
 
-1. [Azure Portal](https://portal.azure.com) → **Microsoft Entra ID** → **App registrations** → **New registration**  
+Do this **once per Entra tenant** that should use RichBucks (e.g. personal test tenant and company tenant). Azure no longer offers new multi-tenant bots — use **Single Tenant** each time.
+
+1. Open the [Azure Portal](https://portal.azure.com) **signed into the correct directory** (top-right directory switcher).  
+2. **Microsoft Entra ID** → **App registrations** → **New registration**  
    - Name: `RichBucks`  
    - Supported account types: **Accounts in this organizational directory only** (single tenant)  
-   - Redirect URI: skip for now  
-2. Copy **Application (client) ID** → `MICROSOFT_APP_ID`  
-3. Copy **Directory (tenant) ID** → `MICROSOFT_APP_TENANT_ID`  
-4. **Certificates & secrets** → **New client secret** → copy the **Value** once → `MICROSOFT_APP_PASSWORD`  
-5. Create an **Azure Bot** resource (Bot Services):  
-   - Type: Multi Tenant or Single Tenant matching the app  
-   - Link the App ID above  
-6. Azure Bot → **Configuration** → **Messaging endpoint**:  
+   - Redirect URI: leave blank  
+3. Overview → copy **Application (client) ID** → `MICROSOFT_APP_ID` (or Admin → Teams apps)  
+4. Overview → copy **Directory (tenant) ID** → `MICROSOFT_APP_TENANT_ID`  
+5. **Certificates & secrets** → **New client secret** → copy the **Value** immediately (shown once) → `MICROSOFT_APP_PASSWORD`  
+6. Create an **Azure Bot** resource (**Azure AI Bot Service** / Bot Services):  
+   - Create new  
+   - **Type of App:** Single Tenant  
+   - **Microsoft App ID:** the Application (client) ID from step 3  
+   - **MSI resource ID:** leave blank  
+   - Display name: `RichBucks`  
+7. Azure Bot → **Configuration** → **Messaging endpoint**:  
    `https://bot.richbucks.xyz/api/messages`  
-7. Azure Bot → **Channels** → enable **Microsoft Teams**  
-8. Under the App registration, API permissions typically include what the Bot channel configures; grant admin consent if prompted  
+   (same URL for every tenant’s bot — Coolify bot service)  
+8. **Apply** / Save  
+9. Azure Bot → **Channels** → **Microsoft Teams** → enable / apply  
+10. If prompted on the App registration, grant **admin consent** for the Teams channel permissions  
 
-#### Teams app package
+Repeat for the company directory, then add that second app under **Admin → Teams apps** (or set company credentials as the Coolify bootstrap env).
 
-1. Edit `bot/teams-manifest/manifest.json`:  
-   - Set `bots[0].botId` (and `id` if you use a new GUID) to `MICROSOFT_APP_ID`  
-2. Add icons (required by Teams):  
-   - `color.png` — 192×192  
-   - `outline.png` — 32×32 transparent  
-3. Zip at the **root** of the zip: `manifest.json`, `color.png`, `outline.png`  
-4. Teams Admin Center → **Teams apps** → **Manage apps** → **Upload** (or sideload in a team for testing)  
-5. Add **RichBucks** to your main group chat  
+#### Teams app package (detailed)
+
+Repo folder: [`bot/teams-manifest/`](./bot/teams-manifest/) — includes `manifest.json`, `color.png` (192×192), and `outline.png` (32×32 white-on-transparent).
+
+**1. Customise the manifest**
+
+Edit `bot/teams-manifest/manifest.json`:
+
+| Field | What to set |
+|---|---|
+| `id` | A new random GUID for this package (or reuse one GUID per tenant package) |
+| `bots[0].botId` | **Exactly** the Application (client) ID for **this** tenant’s app registration |
+| `developer.websiteUrl` / privacy / terms | Your URLs (defaults point at `richbucks.xyz`) |
+| `validDomains` | Optional; can leave `[]` when only using the bot webhook on Coolify |
+| `version` | Bump (`1.0.1`, …) whenever you re-upload |
+
+If you ship **two** tenants, build **two** zip packages (different `botId` / usually different `id`).
+
+**2. Icons (already in repo)**
+
+| File | Size | Rules |
+|---|---|---|
+| `color.png` | 192×192 | Full-colour app icon (included) |
+| `outline.png` | 32×32 | White glyph, **transparent** background (included) |
+
+Do not put logos in JPEG form; Teams rejects missing/wrong-size icons.
+
+**3. Build the zip**
+
+Files must sit at the **root** of the archive (not inside a subfolder):
+
+```bash
+cd bot/teams-manifest
+# After editing manifest.json botId / id:
+# Windows PowerShell:
+Compress-Archive -Path manifest.json,color.png,outline.png -DestinationPath RichBucks-teams.zip -Force
+
+# macOS / Linux:
+zip -j RichBucks-teams.zip manifest.json color.png outline.png
+```
+
+**4. Upload**
+
+- **Company / production:** [Teams Admin Center](https://admin.teams.microsoft.com) → **Teams apps** → **Manage apps** → **Upload** → select the zip → allow for your org / specific users.  
+- **Sideload (dev):** Teams desktop → **Apps** → **Manage your apps** → **Upload a custom app** (requires org policy allowing sideloading).
+
+**5. Add to the chat**
+
+1. Open the target group chat or team.  
+2. **Apps** / **+** → find **RichBucks** → **Add**.  
+3. Confirm the bot can post in that chat.  
+
+**6. Verify Azure ↔ Teams**
+
+1. From Teams, send `/help` in a 1:1 with RichBucks.  
+2. Coolify **bot** logs should show a processed activity (no 401).  
+3. If 401 / unauthorized: App ID/secret/tenant mismatch, or the app isn’t listed under Admin → Teams apps / bootstrap env.  
+4. If the bot never receives traffic: messaging endpoint URL, Cloudflare SSL Full (strict), or Coolify domain not bound to `bot:3978`.
 
 ---
+
 
 ### 2.5 Admin UI
 
