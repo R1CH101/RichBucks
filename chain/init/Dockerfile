@@ -19,4 +19,6 @@ RUN sed -i 's/\r$//' /docker-init-network.sh && chmod +x /docker-init-network.sh
 ENV NETWORK_DIR=/network
 ENV PROFILE=prod
 
-ENTRYPOINT ["/bin/bash", "/docker-init-network.sh"]
+# Compose overrides these; keep a safe default if someone runs the image bare
+ENTRYPOINT ["/bin/bash"]
+CMD ["/docker-init-network.sh"]

@@ -26,10 +26,13 @@ services:
       args:
         BESU_VERSION: ${BESU_VERSION:-25.1.0}
     image: ghcr.io/${GHCR_OWNER:-richbucks}/chain-init:${TAG:-latest}
-    container_name: rb-chain-init
     restart: "no"
+    # Force our script — Coolify/image default ENTRYPOINT is `besu` (exits 2 with no args)
+    entrypoint: ["/bin/bash"]
+    command: ["/docker-init-network.sh"]
     environment:
       PROFILE: ${CHAIN_INIT_PROFILE:-prod}
+      NETWORK_DIR: /network
       DEPLOYER_ADDRESS: ${DEPLOYER_ADDRESS:-}
       TREASURY_ADDRESS: ${TREASURY_ADDRESS:-}
     volumes:

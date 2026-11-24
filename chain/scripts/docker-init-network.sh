@@ -3,13 +3,18 @@
 # Idempotent when genesis + validator-1 key already exist.
 set -euo pipefail
 
+echo "==== chain-init begin pid=$$ ===="
+echo "args: $*"
+echo "profile=${PROFILE:-} network_dir=${NETWORK_DIR:-} deployer_set=${DEPLOYER_ADDRESS:+yes} treasury_set=${TREASURY_ADDRESS:+yes}"
+
 PROFILE="${PROFILE:-prod}"
 OUT="${NETWORK_DIR:-/network}"
 CONFIG="${QBFT_CONFIG:-/qbft/qbftConfig.${PROFILE}.json}"
 DEPLOYER="${DEPLOYER_ADDRESS:-${TREASURY_ADDRESS:-}}"
+DEPLOYER="$(echo -n "$DEPLOYER" | tr -d '[:space:]"'"'"'')"
 
-echo "chain-init starting (profile=${PROFILE}, out=${OUT})"
-echo "besu=$(command -v besu || true) jq=$(command -v jq || true)"
+echo "besu=$(command -v besu || echo MISSING) jq=$(command -v jq || echo MISSING) bash=$BASH_VERSION"
+echo "config=$CONFIG out=$OUT"
 
 if [[ ! -f "$CONFIG" ]]; then
   echo "Missing QBFT config: $CONFIG" >&2
@@ -24,42 +29,43 @@ if [[ -f "$OUT/genesis.json" && -f "$OUT/validator-1/data/key" ]]; then
   exit 0
 fi
 
-if [[ -f "$OUT/genesis.json" ]]; then
-  echo "Partial network state at $OUT (genesis present, keys missing). Refusing to clobber." >&2
-  echo "Delete the chain-network volume to regenerate." >&2
-  exit 1
+# Heal partial volume from a previous failed init
+if [[ -f "$OUT/genesis.json" || -d "$OUT/validator-1" || -d "$OUT/.generate" ]]; then
+  echo "Partial/incomplete network state detected — clearing $OUT for a clean init."
+  # Keep the mount point; delete contents only
+  find "$OUT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 fi
 
 echo "Generating blockchain config (profile=$PROFILE) ..."
 WORKDIR="$OUT/.generate"
-rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
-
 cp "$CONFIG" "$WORKDIR/qbftConfig.work.json"
 
-if [[ -n "${DEPLOYER}" ]]; then
+if [[ -n "$DEPLOYER" ]]; then
   ADDR="$(echo "$DEPLOYER" | tr '[:upper:]' '[:lower:]')"
   if [[ "$ADDR" != 0x* ]]; then
     ADDR="0x${ADDR}"
   fi
-  if [[ ! "$ADDR" =~ ^0x[0-9a-f]{40}$ ]]; then
-    echo "DEPLOYER_ADDRESS/TREASURY_ADDRESS is not a 20-byte hex address: $DEPLOYER" >&2
-    exit 1
+  if [[ "$ADDR" =~ ^0x[0-9a-f]{40}$ ]]; then
+    tmp="${WORKDIR}/qbftConfig.work.json.tmp"
+    jq --arg addr "$ADDR" \
+      '.genesis.alloc[$addr] = {"balance":"0x152D02C7E14AF6800000"}' \
+      "$WORKDIR/qbftConfig.work.json" > "$tmp"
+    mv "$tmp" "$WORKDIR/qbftConfig.work.json"
+    echo "Prefunded deployer $ADDR"
+  else
+    echo "WARNING: DEPLOYER_ADDRESS/TREASURY_ADDRESS not a valid 20-byte hex address ($DEPLOYER) — skipping prefund." >&2
   fi
-  tmp="${WORKDIR}/qbftConfig.work.json.tmp"
-  jq --arg addr "$ADDR" \
-    '.genesis.alloc[$addr] = {"balance":"0x152D02C7E14AF6800000"}' \
-    "$WORKDIR/qbftConfig.work.json" > "$tmp"
-  mv "$tmp" "$WORKDIR/qbftConfig.work.json"
-  echo "Prefunded deployer $ADDR"
 else
   echo "WARNING: DEPLOYER_ADDRESS/TREASURY_ADDRESS unset — genesis will not prefund a deployer." >&2
 fi
 
+set -x
 besu operator generate-blockchain-config \
   --config-file="$WORKDIR/qbftConfig.work.json" \
   --to="$WORKDIR/generated" \
   --private-key-file-name=key
+set +x
 
 if [[ ! -f "$WORKDIR/generated/genesis.json" ]]; then
   echo "besu did not write genesis.json" >&2
@@ -101,4 +107,4 @@ echo "$VALIDATORS_JSON" | jq . > "$OUT/validators.json"
 
 rm -rf "$WORKDIR"
 echo "Done. Genesis + keys written to $OUT (Docker volume)."
-echo "Do not delete the chain-network volume unless you intend to wipe the chain."
+echo "==== chain-init success ===="
