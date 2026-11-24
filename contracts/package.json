@@ -11,10 +11,10 @@
     "upgrade": "hardhat run scripts/upgrade.ts"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "@openzeppelin/hardhat-upgrades": "^3.9.0",
+    "@nomicfoundation/hardhat-toolbox": "^7.0.0",
+    "@openzeppelin/hardhat-upgrades": "^4.1.0",
     "@types/node": "^22.10.2",
-    "hardhat": "^2.22.17",
+    "hardhat": "^3.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   },
