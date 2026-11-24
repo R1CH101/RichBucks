@@ -8,7 +8,11 @@ Contents (zip these three files at the **archive root**):
 | `color.png` | 192×192 colour icon |
 | `outline.png` | 32×32 white outline on transparent background |
 
-## Build
+## Preferred: Admin UI
+
+After the app is saved under **Admin → Teams apps**, use **Download zip** — manifest + icons are generated for you.
+
+## Manual build
 
 1. Edit `manifest.json`: set `id` to a new random GUID for the package, and set `bots[0].botId` to your Azure **Application (client) ID**.  
 2. Package:

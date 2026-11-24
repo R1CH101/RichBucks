@@ -225,13 +225,18 @@ If you ship **two** tenants, build **two** zip packages (different `botId` / usu
 
 Do not put logos in JPEG form; Teams rejects missing/wrong-size icons.
 
-**3. Build the zip**
+**3. Build the zip (preferred: Admin UI)**
 
-Files must sit at the **root** of the archive (not inside a subfolder):
+In **Admin → Teams apps**, click **Download zip** on the row for that Azure app. The zip already contains:
+
+- `manifest.json` with `bots[0].botId` = that app’s client ID (fresh package `id` each download)  
+- `color.png` (192×192) and `outline.png` (32×32)  
+
+Or build manually from the repo (files at zip **root**, not in a subfolder):
 
 ```bash
 cd bot/teams-manifest
-# After editing manifest.json botId / id:
+# Edit manifest.json botId / id first
 # Windows PowerShell:
 Compress-Archive -Path manifest.json,color.png,outline.png -DestinationPath RichBucks-teams.zip -Force
 

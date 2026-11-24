@@ -10,6 +10,7 @@ import path from "path";
 import { assertAdminSecrets, isProduction } from "./secrets";
 import { clientIp, ipAllowed, isLoopback, parseAllowlist } from "./ipAllowlist";
 import { TeamsAppsStore, teamsConfigDir, teamsConfigSecret } from "./teamsAppsStore";
+import { buildTeamsAppZip, buildTeamsManifest } from "./teamsPackage";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
@@ -359,6 +360,15 @@ app.post("/mint", requireAuth, requireCsrf, async (req, res) => {
 
 app.get("/teams-apps", requireAuth, (req, res) => {
   const apps = teamsApps.listPublic();
+  const botHost =
+    process.env.BOT_PUBLIC_HOST ||
+    (() => {
+      try {
+        return new URL(process.env.PUBLIC_BOT_URL || "https://bot.richbucks.xyz").hostname;
+      } catch {
+        return "bot.richbucks.xyz";
+      }
+    })();
   const rows = apps.length
     ? apps
         .map(
@@ -366,7 +376,9 @@ app.get("/teams-apps", requireAuth, (req, res) => {
           <td>${escapeHtml(a.label)}</td>
           <td><code>${escapeHtml(a.appId)}</code></td>
           <td><code>${escapeHtml(a.tenantId)}</code></td>
-          <td>
+          <td style="white-space:nowrap">
+            <a class="btn" style="margin-top:0;padding:0.4rem 0.7rem;font-size:0.85rem" href="/teams-apps/${escapeHtml(a.id)}/package.zip">Download zip</a>
+            <a class="btn" style="margin-top:0;padding:0.4rem 0.7rem;font-size:0.85rem;background:#2a3a30;color:var(--text)" href="/teams-apps/${escapeHtml(a.id)}/manifest.json">manifest.json</a>
             <form method="post" action="/teams-apps/delete" style="display:inline">
               ${csrfField(req)}
               <input type="hidden" name="id" value="${escapeHtml(a.id)}" />
@@ -383,11 +395,16 @@ app.get("/teams-apps", requireAuth, (req, res) => {
       "Teams apps",
       `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a><a href="/teams-apps">Teams apps</a></nav>
       <h1>Teams apps</h1>
-      <p class="sub">Each single-tenant Azure Bot / app registration that should hit this RichBucks bot. Same messaging URL for all: <code>https://bot.richbucks.xyz/api/messages</code>. Passwords are stored encrypted; never shown again after save.</p>
+      <p class="sub">Each single-tenant Azure Bot / app registration that should hit this RichBucks bot. Same messaging URL for all: <code>https://${escapeHtml(botHost)}/api/messages</code>. Passwords are stored encrypted; never shown again after save.</p>
+      <div class="card">
+        <h2>Teams app package</h2>
+        <p class="muted">For each saved app, download a ready-to-upload zip (<code>manifest.json</code> + <code>color.png</code> + <code>outline.png</code>). Upload in Teams Admin → Manage apps → Upload, then add RichBucks to the chat. Azure Bot messaging endpoint must be <code>https://${escapeHtml(botHost)}/api/messages</code>.</p>
+        <p class="muted">Icons are bundled automatically. Package GUID is fresh on every download; <code>bots[0].botId</code> is set to that app’s Application (client) ID.</p>
+      </div>
       <div class="card">
         <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
           <thead><tr>
-            <th align="left">Label</th><th align="left">App ID</th><th align="left">Tenant ID</th><th></th>
+            <th align="left">Label</th><th align="left">App ID</th><th align="left">Tenant ID</th><th align="left">Package</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -403,6 +420,46 @@ app.get("/teams-apps", requireAuth, (req, res) => {
       </form>`
     )
   );
+});
+
+app.get("/teams-apps/:id/package.zip", requireAuth, async (req, res) => {
+  const app = teamsApps.getById(String(req.params.id || ""));
+  if (!app) return res.status(404).send(layout("Teams apps", `<p class="err">App not found.</p>`));
+  try {
+    const { zip, filename } = await buildTeamsAppZip({
+      id: app.id,
+      label: app.label,
+      appId: app.appId,
+      tenantId: app.tenantId,
+      createdAt: app.createdAt,
+    });
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(zip);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).send(layout("Teams apps", `<p class="err">${escapeHtml(msg)}</p><a class="btn" href="/teams-apps">Back</a>`));
+  }
+});
+
+app.get("/teams-apps/:id/manifest.json", requireAuth, (req, res) => {
+  const app = teamsApps.getById(String(req.params.id || ""));
+  if (!app) return res.status(404).json({ error: "not found" });
+  const manifest = buildTeamsManifest({
+    id: app.id,
+    label: app.label,
+    appId: app.appId,
+    tenantId: app.tenantId,
+    createdAt: app.createdAt,
+  });
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="manifest-${(app.label || "app").replace(/[^a-zA-Z0-9._-]+/g, "-")}.json"`
+  );
+  res.setHeader("Cache-Control", "no-store");
+  res.send(JSON.stringify(manifest, null, 2));
 });
 
 app.post("/teams-apps", requireAuth, requireCsrf, (req, res) => {
