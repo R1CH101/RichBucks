@@ -70,7 +70,7 @@ Coolify / reverse-proxy map:
 
 `rpc-filter`, `bot`, and `admin` are in the **root** compose so Coolify lists them for Domains. Use the container port in the Domains field (`:3978`, `:3000`, `:8549`); visitors still use normal HTTPS. Prefer `expose` over host `ports:`.
 
-Keep validator RPC (`8545`) **off** the public internet. Only `rpc-filter` is proxied (ETH/NET/WEB3 allowlist — **no QBFT**). Cloudflare SSL: **Full (strict)**. Pass `RPC_API_KEY` as `x-api-key` / Bearer on public RPC.
+Keep validator RPC (`8545`) **off** the public internet. Only `rpc-filter` is proxied (ETH/NET/WEB3 allowlist + rate limit — **no QBFT**). Cloudflare SSL: **Full (strict)**. API key is optional (`RPC_REQUIRE_API_KEY=true` + `RPC_API_KEY`); MetaMask uses the bare URL when key auth is off.
 
 After contract deploy, set a **separate** `WELCOME_MINTER_PRIVATE_KEY` for the bot and call `setWelcomeMinter(minterAddress)` from the owner key (admin) so the bot cannot upgrade the contract.
 
@@ -315,8 +315,8 @@ Open `https://admin.richbucks.xyz/login`, enter username / password / 6-digit TO
 | `JOIN_ENABLED` | `false` | Set `true` only when onboarding coworker nodes (v1.1 / VPN) |
 | `NODE_JOIN_API_KEY` | random token | Required when `JOIN_ENABLED=true`. Bearer secret for `/join/config` |
 | `JOIN_URL` | `https://admin.richbucks.xyz/join/config` | Used on **coworker** machines (not the VPS `.env` name for admin) |
-| `RPC_API_KEY` | `openssl rand -hex 24` | **Required in production.** Public rpc-filter rejects requests without `x-api-key` / Bearer / `?key=` |
-| `RPC_REQUIRE_API_KEY` | `true` | Default true in compose; set false only for local experiments |
+| `RPC_API_KEY` | `openssl rand -hex 24` | Only if `RPC_REQUIRE_API_KEY=true`. Pass as `x-api-key` / Bearer / `?key=` |
+| `RPC_REQUIRE_API_KEY` | `false` | Default off (MetaMask-friendly). Set `true` to lock public RPC behind a key |
 | `GHCR_OWNER` | `r1ch101` | Lowercase GitHub owner for image names |
 | `TAG` | `latest` | Image tag Coolify pulls |
 
@@ -353,7 +353,8 @@ ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP
 SESSION_SECRET=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 ADMIN_ALLOWED_IPS=203.0.113.10
 ADMIN_TRUST_CLOUDFLARE=true
-RPC_API_KEY=replace-with-openssl-rand-hex-24
+RPC_REQUIRE_API_KEY=false
+# RPC_API_KEY=replace-with-openssl-rand-hex-24  # only if REQUIRE=true
 WELCOME_MINTER_PRIVATE_KEY=0x2222222222222222222222222222222222222222222222222222222222222222
 SHOW_METAMASK_CARD=false
 COOKIE_SECURE=true
@@ -562,6 +563,8 @@ RPC-only nodes sync but do **not** earn proposer RB.
    - Currency symbol: `GAS` (native; still free)  
 3. Import token: address from `/network/contract.address`, symbol `RB`, **0 decimals**  
 4. Or `/export-wallet` in DM and import the private key  
+
+If you turned `RPC_REQUIRE_API_KEY=true`, MetaMask must use `https://rpc.richbucks.xyz/?key=<RPC_API_KEY>` (it cannot send `x-api-key`).
 
 ---
 

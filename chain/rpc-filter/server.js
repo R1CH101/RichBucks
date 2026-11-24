@@ -7,15 +7,13 @@ const crypto = require("crypto");
 const PORT = Number(process.env.PORT || 8549);
 const UPSTREAM = process.env.UPSTREAM_RPC || "http://validator-1:8545";
 const API_KEY = process.env.RPC_API_KEY || "";
-const REQUIRE_KEY =
-  process.env.RPC_REQUIRE_API_KEY === "true" ||
-  process.env.NODE_ENV === "production" ||
-  process.env.RICHBUCKS_REQUIRE_SECRETS === "true";
+/** Explicit opt-in only — default off so MetaMask can use the bare public URL. */
+const REQUIRE_KEY = process.env.RPC_REQUIRE_API_KEY === "true";
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = Number(process.env.RPC_RATE_MAX || 120);
 
 if (REQUIRE_KEY && (!API_KEY || API_KEY.length < 16)) {
-  console.error("RPC_API_KEY required (min 16 chars) when RPC_REQUIRE_API_KEY/production is set");
+  console.error("RPC_API_KEY required (min 16 chars) when RPC_REQUIRE_API_KEY=true");
   process.exit(1);
 }
 
@@ -71,7 +69,7 @@ function timingSafeEqualStr(a, b) {
 }
 
 function apiKeyOk(req) {
-  if (!API_KEY) return !REQUIRE_KEY;
+  if (!REQUIRE_KEY) return true;
   const hdr = req.header("x-api-key") || "";
   const auth = (req.header("authorization") || "").replace(/^Bearer\s+/i, "");
   const pathKey = (req.query.key || "").toString();

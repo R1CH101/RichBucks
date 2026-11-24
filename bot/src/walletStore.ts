@@ -8,6 +8,7 @@ export type StoredWallet = {
   teamsId: string;
   displayName: string;
   address: string;
+  email: string | null;
 };
 
 /** scrypt params — intentional slow KDF if WALLET_ENCRYPTION_KEY is a passphrase. */
@@ -32,6 +33,10 @@ function deriveKeyLegacy(secret: string): Buffer {
   return crypto.createHash("sha256").update(secret).digest();
 }
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 export class WalletStore {
   private db: Database.Database;
   private secret: string;
@@ -53,54 +58,131 @@ export class WalletStore {
       );
       CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address);
     `);
+    this.migrateEmailColumn();
+  }
+
+  private migrateEmailColumn() {
+    const cols = this.db.prepare(`PRAGMA table_info(wallets)`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === "email")) {
+      this.db.exec(`ALTER TABLE wallets ADD COLUMN email TEXT`);
+    }
+    this.db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_wallets_email ON wallets(email) WHERE email IS NOT NULL`
+    );
+  }
+
+  private mapRow(row: {
+    teams_id: string;
+    display_name: string;
+    address: string;
+    email?: string | null;
+  }): StoredWallet {
+    return {
+      teamsId: row.teams_id,
+      displayName: row.display_name,
+      address: row.address,
+      email: row.email ?? null,
+    };
   }
 
   getByTeamsId(teamsId: string): StoredWallet | undefined {
     const row = this.db
-      .prepare(`SELECT teams_id, display_name, address FROM wallets WHERE teams_id = ?`)
-      .get(teamsId) as { teams_id: string; display_name: string; address: string } | undefined;
-    if (!row) return undefined;
-    return { teamsId: row.teams_id, displayName: row.display_name, address: row.address };
+      .prepare(`SELECT teams_id, display_name, address, email FROM wallets WHERE teams_id = ?`)
+      .get(teamsId) as
+      | { teams_id: string; display_name: string; address: string; email: string | null }
+      | undefined;
+    return row ? this.mapRow(row) : undefined;
   }
 
   getByAddress(address: string): StoredWallet | undefined {
     const row = this.db
-      .prepare(`SELECT teams_id, display_name, address FROM wallets WHERE lower(address) = lower(?)`)
-      .get(address) as { teams_id: string; display_name: string; address: string } | undefined;
-    if (!row) return undefined;
-    return { teamsId: row.teams_id, displayName: row.display_name, address: row.address };
+      .prepare(
+        `SELECT teams_id, display_name, address, email FROM wallets WHERE lower(address) = lower(?)`
+      )
+      .get(address) as
+      | { teams_id: string; display_name: string; address: string; email: string | null }
+      | undefined;
+    return row ? this.mapRow(row) : undefined;
   }
 
   findByDisplayName(name: string): StoredWallet | undefined {
     const row = this.db
       .prepare(
-        `SELECT teams_id, display_name, address FROM wallets WHERE lower(display_name) = lower(?)`
+        `SELECT teams_id, display_name, address, email FROM wallets WHERE lower(display_name) = lower(?)`
       )
-      .get(name) as { teams_id: string; display_name: string; address: string } | undefined;
-    if (!row) return undefined;
-    return { teamsId: row.teams_id, displayName: row.display_name, address: row.address };
+      .get(name) as
+      | { teams_id: string; display_name: string; address: string; email: string | null }
+      | undefined;
+    return row ? this.mapRow(row) : undefined;
   }
 
-  ensureWallet(teamsId: string, displayName: string): { wallet: StoredWallet; created: boolean } {
+  findByEmail(email: string): StoredWallet | undefined {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return undefined;
+    const row = this.db
+      .prepare(
+        `SELECT teams_id, display_name, address, email FROM wallets WHERE lower(email) = ?`
+      )
+      .get(normalized) as
+      | { teams_id: string; display_name: string; address: string; email: string | null }
+      | undefined;
+    return row ? this.mapRow(row) : undefined;
+  }
+
+  listAll(): StoredWallet[] {
+    const rows = this.db
+      .prepare(
+        `SELECT teams_id, display_name, address, email FROM wallets ORDER BY lower(display_name)`
+      )
+      .all() as {
+      teams_id: string;
+      display_name: string;
+      address: string;
+      email: string | null;
+    }[];
+    return rows.map((r) => this.mapRow(r));
+  }
+
+  setEmail(teamsId: string, email: string | null | undefined) {
+    if (!email) return;
+    const normalized = normalizeEmail(email);
+    if (!normalized || !normalized.includes("@")) return;
+    const other = this.findByEmail(normalized);
+    if (other && other.teamsId !== teamsId) return;
+    this.db.prepare(`UPDATE wallets SET email = ? WHERE teams_id = ?`).run(normalized, teamsId);
+  }
+
+  ensureWallet(teamsId: string, displayName: string, email?: string | null): {
+    wallet: StoredWallet;
+    created: boolean;
+  } {
     const existing = this.getByTeamsId(teamsId);
     if (existing) {
       this.db
         .prepare(`UPDATE wallets SET display_name = ? WHERE teams_id = ?`)
         .run(displayName, teamsId);
-      return { wallet: { ...existing, displayName }, created: false };
+      if (email) this.setEmail(teamsId, email);
+      const updated = this.getByTeamsId(teamsId)!;
+      return { wallet: updated, created: false };
     }
 
     const w = Wallet.createRandom();
     const enc = this.encrypt(w.privateKey);
+    const normalizedEmail = email ? normalizeEmail(email) : null;
     this.db
       .prepare(
-        `INSERT INTO wallets (teams_id, display_name, address, enc_private_key, created_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO wallets (teams_id, display_name, address, enc_private_key, created_at, email)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(teamsId, displayName, w.address, enc, Date.now());
+      .run(teamsId, displayName, w.address, enc, Date.now(), normalizedEmail);
 
     return {
-      wallet: { teamsId, displayName, address: w.address },
+      wallet: {
+        teamsId,
+        displayName,
+        address: w.address,
+        email: normalizedEmail,
+      },
       created: true,
     };
   }

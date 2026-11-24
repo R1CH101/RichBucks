@@ -45,17 +45,18 @@ export function buildTeamsManifest(app: TeamsAppPublic, opts?: { version?: strin
   const version = opts?.version || "1.0.0";
 
   return {
-    $schema: "https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
-    manifestVersion: "1.25",
+    $schema: "https://developer.microsoft.com/json-schemas/teams/v1.30/MicrosoftTeams.schema.json",
+    manifestVersion: "1.30",
     version,
     id: packageId,
-    // Required for upload: declare Shared/Private channel readiness (bots/tabs).
+    // Shared / private channel readiness (required on upload in many tenants)
     supportsChannelFeatures: "tier1",
     developer: {
       name: "RichBucks",
       websiteUrl: site,
       privacyUrl: `${site}/privacy`,
       termsOfUseUrl: `${site}/terms`,
+      mpnId: "",
     },
     name: {
       short: "RichBucks",
@@ -82,8 +83,8 @@ export function buildTeamsManifest(app: TeamsAppPublic, opts?: { version?: strin
             commands: [
               { title: "help", description: "Show RichBucks commands" },
               { title: "balance", description: "Show your RB balance" },
-              { title: "give", description: "Tip 1 RB to @someone" },
-              { title: "send", description: "Send whole RB to @someone" },
+              { title: "give", description: "Tip 1 RB to @someone or email" },
+              { title: "send", description: "Send whole RB to @someone or email" },
               { title: "leaderboard", description: "Top tippers and earners" },
               { title: "export-wallet", description: "DM only: export key" },
             ],
@@ -93,6 +94,11 @@ export function buildTeamsManifest(app: TeamsAppPublic, opts?: { version?: strin
     ],
     permissions: ["identity", "messageTeamMembers"],
     validDomains: [host],
+    // Binds the package to the Entra bot registration (needed for group chats / channels)
+    webApplicationInfo: {
+      id: app.appId,
+      resource: "",
+    },
   };
 }
 

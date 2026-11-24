@@ -1,16 +1,26 @@
 export type ParsedCommand =
   | { type: "help" }
   | { type: "balance" }
-  | { type: "give"; mentionName?: string; mentionId?: string; reason: string }
-  | { type: "send"; mentionName?: string; mentionId?: string; amount: string }
+  | { type: "give"; email?: string; reason: string }
+  | { type: "send"; email?: string; amount: string }
   | { type: "leaderboard" }
   | { type: "export-wallet"; confirmed: boolean }
   | { type: "unknown"; raw: string };
 
+const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+export function extractEmail(text: string): string | undefined {
+  const m = text.match(EMAIL_RE);
+  return m ? m[0].toLowerCase() : undefined;
+}
+
 export function parseCommand(text: string): ParsedCommand {
+  const email = extractEmail(text);
   const cleaned = text
     .replace(/<at>[^<]*<\/at>/gi, "")
     .replace(/@[^\s]+/g, "")
+    .replace(EMAIL_RE, "")
+    .replace(/\s+/g, " ")
     .trim();
   const lower = cleaned.toLowerCase();
 
@@ -24,12 +34,16 @@ export function parseCommand(text: string): ParsedCommand {
 
   const give = cleaned.match(/^\/?give(?:\s+(.*))?$/i);
   if (give) {
-    return { type: "give", reason: (give[1] || "").trim() || "👍" };
+    return {
+      type: "give",
+      email,
+      reason: (give[1] || "").trim() || "👍",
+    };
   }
 
   const send = cleaned.match(/^\/?send\s+(\d+)\s*$/i);
   if (send) {
-    return { type: "send", amount: send[1] };
+    return { type: "send", email, amount: send[1] };
   }
 
   return { type: "unknown", raw: cleaned };

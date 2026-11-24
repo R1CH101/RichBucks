@@ -175,7 +175,7 @@ services:
       PORT: 8549
       UPSTREAM_RPC: http://validator-1:8545
       RPC_API_KEY: ${RPC_API_KEY:-}
-      RPC_REQUIRE_API_KEY: ${RPC_REQUIRE_API_KEY:-true}
+      RPC_REQUIRE_API_KEY: ${RPC_REQUIRE_API_KEY:-false}
       RPC_RATE_MAX: ${RPC_RATE_MAX:-120}
       SERVICE_URL_RPC_FILTER_8549: ${SERVICE_URL_RPC_FILTER_8549:-}
     expose:
@@ -266,9 +266,11 @@ services:
       GENESIS_PATH: /network/genesis.json
       TEAMS_CONFIG_DIR: /config
       CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
+      WALLET_DB_PATH: /data/wallets.sqlite
     volumes:
       - chain-network:/network:ro
       - app-config:/config
+      - bot-wallets:/data:ro
     expose:
       - "3000"
     depends_on:

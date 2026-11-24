@@ -5,6 +5,7 @@ import {
   TurnContext,
   CardFactory,
   MessageFactory,
+  TeamsInfo,
 } from "botbuilder";
 import * as dotenv from "dotenv";
 import { WalletStore } from "./walletStore";
@@ -73,8 +74,8 @@ const chain = new ChainClient(
 const HELP = [
   "**RichBucks** — private office token on your company chain.",
   "`/balance` — your RB + address (**DM**; in a group you'll get a private reply)",
-  "`/give @Name [reason]` — tip **1 RB** once per day (minted; group or DM)",
-  "`/send @Name <whole amount>` — transfer RB you hold (group or DM)",
+  "`/give @Name|email [reason]` — tip **1 RB** once per day (minted; group or DM)",
+  "`/send @Name|email <whole amount>` — transfer RB you hold (group or DM)",
   "`/leaderboard` — top tippers / earners / proposers (group or DM)",
   "`/export-wallet CONFIRM` — **DM only**: export private key (once/hour)",
   "`/help` — this list",
@@ -162,10 +163,29 @@ async function replyPrivately(
   }
 }
 
+async function resolveUserEmail(context: TurnContext): Promise<string | undefined> {
+  const from = context.activity.from as {
+    email?: string;
+    userPrincipalName?: string;
+  };
+  if (from.email) return from.email;
+  if (from.userPrincipalName?.includes("@")) return from.userPrincipalName;
+  try {
+    const member = await TeamsInfo.getMember(context, context.activity.from.id);
+    const m = member as { email?: string; userPrincipalName?: string };
+    if (m.email) return m.email;
+    if (m.userPrincipalName?.includes("@")) return m.userPrincipalName;
+  } catch {
+    /* member lookup unavailable in some conversation types */
+  }
+  return undefined;
+}
+
 async function ensureUser(context: TurnContext) {
   const teamsId = context.activity.from.aadObjectId || context.activity.from.id;
   const name = context.activity.from.name || "User";
-  const { wallet, created } = store.ensureWallet(teamsId, name);
+  const email = await resolveUserEmail(context);
+  const { wallet, created } = store.ensureWallet(teamsId, name, email);
   if (created) {
     try {
       await chain.mintWelcome(wallet.address);
@@ -202,13 +222,20 @@ function firstMention(context: TurnContext): { id: string; name: string } | unde
   return undefined;
 }
 
-async function resolveRecipient(context: TurnContext, fallbackName?: string) {
+async function resolveRecipient(
+  context: TurnContext,
+  opts?: { email?: string; fallbackName?: string }
+) {
   const mention = firstMention(context);
-  if (mention) {
+  if (mention?.id) {
     return store.ensureWallet(mention.id, mention.name).wallet;
   }
-  if (fallbackName) {
-    const found = store.findByDisplayName(fallbackName);
+  if (opts?.email) {
+    const byEmail = store.findByEmail(opts.email);
+    if (byEmail) return byEmail;
+  }
+  if (opts?.fallbackName) {
+    const found = store.findByDisplayName(opts.fallbackName);
     if (found) return found;
   }
   return undefined;
@@ -245,9 +272,11 @@ async function handleMessage(context: TurnContext) {
     }
 
     case "give": {
-      const recipient = await resolveRecipient(context);
+      const recipient = await resolveRecipient(context, { email: cmd.email });
       if (!recipient) {
-        await context.sendActivity("Mention who to tip: `/give @Name nice one`");
+        await context.sendActivity(
+          "Who to tip? Use `/give @Name nice one` or `/give someone@company.com nice one` (email works after they've messaged RichBucks once)."
+        );
         return;
       }
       if (recipient.teamsId === me.teamsId) {
@@ -274,9 +303,11 @@ async function handleMessage(context: TurnContext) {
     }
 
     case "send": {
-      const recipient = await resolveRecipient(context);
+      const recipient = await resolveRecipient(context, { email: cmd.email });
       if (!recipient) {
-        await context.sendActivity("Mention who to pay: `/send @Name 5`");
+        await context.sendActivity(
+          "Who to pay? Use `/send @Name 5` or `/send someone@company.com 5` (email works after they've messaged RichBucks once)."
+        );
         return;
       }
       try {

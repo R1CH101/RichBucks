@@ -12,6 +12,7 @@ import { clientIp, ipAllowed, isLoopback, parseAllowlist } from "./ipAllowlist";
 import { TeamsAppsStore, teamsConfigDir, teamsConfigSecret } from "./teamsAppsStore";
 import { buildTeamsAppZip, buildTeamsManifest } from "./teamsPackage";
 import { resolveContractAddress } from "./resolveContractAddress";
+import { listWallets } from "./walletDirectory";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
@@ -127,7 +128,27 @@ app.set("trust proxy", 1);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-function layout(title: string, body: string) {
+type Flash = { kind: "ok" | "err"; text: string };
+
+function takeFlash(req: express.Request): Flash | null {
+  const s = req.session as { flash?: Flash };
+  const f = s.flash || null;
+  if (s.flash) delete s.flash;
+  return f;
+}
+
+function setFlash(req: express.Request, kind: "ok" | "err", text: string) {
+  (req.session as { flash?: Flash }).flash = { kind, text };
+}
+
+function flashHtml(flash: Flash | null): string {
+  if (!flash) return "";
+  const cls = flash.kind === "ok" ? "toast ok" : "toast err-toast";
+  return `<div class="${cls}" role="status">${escapeHtml(flash.text)}</div>
+<script>setTimeout(()=>{const t=document.querySelector('.toast');if(t)t.remove()},5200)</script>`;
+}
+
+function layout(title: string, body: string, flash: Flash | null = null) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${title} · RichBucks Admin</title>
@@ -147,11 +168,20 @@ function layout(title: string, body: string) {
   .muted { color: var(--muted); font-size: 0.9rem; }
   .err { color: var(--danger); }
   nav a { color: var(--accent); margin-right: 1rem; }
+  .toast { margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 10px; border: 1px solid #2a3a30; animation: toast-in .25s ease-out; }
+  .toast.ok { background: #163526; border-color: #2f6b4a; color: #c8efd8; }
+  .toast.err-toast { background: #2a1616; border-color: #6b2f2f; color: #f0c8c8; }
+  @keyframes toast-in { from { opacity:0; transform: translateY(-6px); } to { opacity:1; transform:none; } }
 </style></head>
 <body><main>
+${flashHtml(flash)}
 ${body}
 <p class="muted" style="margin-top:2rem">RichBucks admin · AGPL-3.0</p>
 </main></body></html>`;
+}
+
+function walletDbPath(): string {
+  return process.env.WALLET_DB_PATH || "./data/wallets.sqlite";
 }
 
 /** Block non-allowlisted clients before session/login (loopback /health exempt for Coolify). */
@@ -332,31 +362,83 @@ app.post("/settings", requireAuth, requireCsrf, async (req, res) => {
 });
 
 app.get("/mint", requireAuth, (req, res) => {
+  const flash = takeFlash(req);
+  const users = listWallets(walletDbPath());
+  const options = users.length
+    ? [
+        `<option value="">— Select a Teams user —</option>`,
+        ...users.map((u) => {
+          const label = [
+            u.displayName,
+            u.email ? `<${u.email}>` : null,
+            u.address.slice(0, 10) + "…",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `<option value="${escapeHtml(u.address)}">${escapeHtml(label)}</option>`;
+        }),
+      ].join("")
+    : `<option value="">No bot users yet — someone must message RichBucks first</option>`;
+
   res.send(
     layout(
       "Mint",
       `<nav><a href="/">Dashboard</a><a href="/mint">Mint</a><a href="/teams-apps">Teams apps</a></nav>
       <h1>Admin mint</h1>
-      <form method="post" action="/mint" class="card">
+      <p class="sub">Pick a user who has already talked to the bot, or paste a raw 0x address.</p>
+      <form method="post" action="/mint" class="card" id="mint-form">
         ${csrfField(req)}
-        <label>Address (0x…)</label><input name="to" required />
-        <label>Amount (whole RB, max 100000 per tx via UI)</label><input name="amount" pattern="\\d+" required />
+        <label>Teams user</label>
+        <select name="user" id="mint-user" ${users.length ? "" : "disabled"}>
+          ${options}
+        </select>
+        <label>Or address (0x…)</label>
+        <input name="to" id="mint-to" placeholder="0x…" autocomplete="off" />
+        <label>Amount (whole RB, max 100000 per tx)</label>
+        <input name="amount" pattern="\\d+" required />
         <button type="submit">Mint</button>
-      </form>`
+      </form>
+      <script>
+        (function(){
+          var sel=document.getElementById('mint-user');
+          var to=document.getElementById('mint-to');
+          if(!sel||!to) return;
+          sel.addEventListener('change', function(){
+            if(sel.value) to.value = sel.value;
+          });
+        })();
+      </script>`,
+      flash
     )
   );
 });
 
 app.post("/mint", requireAuth, requireCsrf, async (req, res) => {
   const ctx = getOwner();
-  if (!ctx) return res.status(500).send("chain not configured");
-  const to = String(req.body.to || "");
-  const amount = BigInt(String(req.body.amount || "0"));
-  if (!/^0x[a-fA-F0-9]{40}$/.test(to) || amount <= 0n || amount > 100000n) {
-    return res.status(400).send(layout("Mint", `<p class="err">Invalid address or amount</p>`));
+  if (!ctx) {
+    setFlash(req, "err", "Chain not configured (RPC / contract / deployer key).");
+    return res.redirect("/mint");
   }
-  const tx = await ctx.token.mintAdmin(to, amount, { gasPrice: 0n });
-  await tx.wait();
+  const to = String(req.body.to || req.body.user || "").trim();
+  let amount: bigint;
+  try {
+    amount = BigInt(String(req.body.amount || "0"));
+  } catch {
+    setFlash(req, "err", "Invalid amount.");
+    return res.redirect("/mint");
+  }
+  if (!/^0x[a-fA-F0-9]{40}$/.test(to) || amount <= 0n || amount > 100000n) {
+    setFlash(req, "err", "Pick a user or enter a valid 0x address and amount (1–100000).");
+    return res.redirect("/mint");
+  }
+  try {
+    const tx = await ctx.token.mintAdmin(to, amount, { gasPrice: 0n });
+    await tx.wait();
+    setFlash(req, "ok", `Minted ${amount.toString()} RB to ${to}. Tx ${tx.hash}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    setFlash(req, "err", `Mint failed: ${msg}`);
+  }
   res.redirect("/mint");
 });
 
@@ -400,8 +482,9 @@ app.get("/teams-apps", requireAuth, (req, res) => {
       <p class="sub">Each single-tenant Azure Bot / app registration that should hit this RichBucks bot. Same messaging URL for all: <code>https://${escapeHtml(botHost)}/api/messages</code>. Passwords are stored encrypted; never shown again after save.</p>
       <div class="card">
         <h2>Teams app package</h2>
-        <p class="muted">For each saved app, download a ready-to-upload zip (<code>manifest.json</code> + <code>color.png</code> + <code>outline.png</code>). Upload in Teams Admin → Manage apps → Upload, then add RichBucks to the chat. Azure Bot messaging endpoint must be <code>https://${escapeHtml(botHost)}/api/messages</code>.</p>
-        <p class="muted">Icons are bundled automatically. Package GUID is fresh on every download; <code>bots[0].botId</code> is set to that app’s Application (client) ID.</p>
+        <p class="muted">For each saved app, download a ready-to-upload zip (<code>manifest.json</code> + icons). Upload in Teams Admin → Manage apps → Upload an app. Azure Bot messaging endpoint must be <code>https://${escapeHtml(botHost)}/api/messages</code>.</p>
+        <p class="muted"><strong>Group chats:</strong> open the chat → … → Add apps → RichBucks (or @mention RichBucks and add when prompted). <strong>Team channels:</strong> go to the team → Apps / Manage team → Apps → add RichBucks, then @mention it in the channel once. Personal scope alone is not enough — the package includes <code>groupChat</code> + <code>team</code> scopes and <code>webApplicationInfo</code>.</p>
+        <p class="muted">Icons are bundled automatically. Package GUID is fresh on every download; <code>bots[0].botId</code> and <code>webApplicationInfo.id</code> are set to that app’s Application (client) ID.</p>
       </div>
       <div class="card">
         <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
