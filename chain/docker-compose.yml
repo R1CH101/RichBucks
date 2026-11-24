@@ -1,7 +1,11 @@
 # Production / Coolify stack — 4 QBFT validators + filtered public RPC
-# Prerequisites: ./scripts/init-network.sh prod  (generates ./network/)
-# Validators are NOT published on the host (internal Docker network only).
-# Public MetaMask/RPC traffic goes through rpc-filter (ETH/NET/WEB3 allowlist).
+#
+# Persistent Docker volumes (survive Coolify redeploys — no host bind mounts required):
+#   chain-network  — genesis.json + validator keys + Besu chain data
+#   (bot-wallets is declared in root docker-compose.yml)
+#
+# chain-init runs once in Docker and writes into chain-network if empty.
+# Validators are NOT published on the host. Public RPC = rpc-filter:8549.
 
 x-besu-common: &besu-common
   image: hyperledger/besu:${BESU_VERSION:-25.1.0}
@@ -10,17 +14,36 @@ x-besu-common: &besu-common
     - richbucks
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
-  volumes:
-    - ./network/genesis.json:/config/genesis.json:ro
 
 services:
+  chain-init:
+    build:
+      context: .
+      dockerfile: init/Dockerfile
+      args:
+        BESU_VERSION: ${BESU_VERSION:-25.1.0}
+    image: ghcr.io/${GHCR_OWNER:-richbucks}/chain-init:${TAG:-latest}
+    container_name: rb-chain-init
+    restart: "no"
+    environment:
+      PROFILE: ${CHAIN_INIT_PROFILE:-prod}
+      DEPLOYER_ADDRESS: ${DEPLOYER_ADDRESS:-}
+      TREASURY_ADDRESS: ${TREASURY_ADDRESS:-}
+    volumes:
+      - chain-network:/network
+    networks:
+      - richbucks
+
   validator-1:
     <<: *besu-common
     container_name: rb-validator-1
+    depends_on:
+      chain-init:
+        condition: service_completed_successfully
     command:
-      - --data-path=/data
-      - --genesis-file=/config/genesis.json
-      - --node-private-key-file=/data/key
+      - --data-path=/network/validator-1/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-1/data/key
       - --min-gas-price=0
       - --rpc-http-enabled
       - --rpc-http-host=0.0.0.0
@@ -35,8 +58,7 @@ services:
       - --nat-method=NONE
       - --profile=ENTERPRISE
     volumes:
-      - ./network/genesis.json:/config/genesis.json:ro
-      - ./network/validator-1/data:/data
+      - chain-network:/network
     expose:
       - "8545"
       - "30303"
@@ -50,12 +72,14 @@ services:
     <<: *besu-common
     container_name: rb-validator-2
     depends_on:
+      chain-init:
+        condition: service_completed_successfully
       validator-1:
         condition: service_healthy
     command:
-      - --data-path=/data
-      - --genesis-file=/config/genesis.json
-      - --node-private-key-file=/data/key
+      - --data-path=/network/validator-2/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-2/data/key
       - --min-gas-price=0
       - --bootnodes=${BOOTNODE_ENODE}
       - --p2p-port=30303
@@ -68,8 +92,7 @@ services:
       - --nat-method=NONE
       - --profile=ENTERPRISE
     volumes:
-      - ./network/genesis.json:/config/genesis.json:ro
-      - ./network/validator-2/data:/data
+      - chain-network:/network
     expose:
       - "8545"
 
@@ -77,12 +100,14 @@ services:
     <<: *besu-common
     container_name: rb-validator-3
     depends_on:
+      chain-init:
+        condition: service_completed_successfully
       validator-1:
         condition: service_healthy
     command:
-      - --data-path=/data
-      - --genesis-file=/config/genesis.json
-      - --node-private-key-file=/data/key
+      - --data-path=/network/validator-3/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-3/data/key
       - --min-gas-price=0
       - --bootnodes=${BOOTNODE_ENODE}
       - --p2p-port=30303
@@ -95,8 +120,7 @@ services:
       - --nat-method=NONE
       - --profile=ENTERPRISE
     volumes:
-      - ./network/genesis.json:/config/genesis.json:ro
-      - ./network/validator-3/data:/data
+      - chain-network:/network
     expose:
       - "8545"
 
@@ -104,12 +128,14 @@ services:
     <<: *besu-common
     container_name: rb-validator-4
     depends_on:
+      chain-init:
+        condition: service_completed_successfully
       validator-1:
         condition: service_healthy
     command:
-      - --data-path=/data
-      - --genesis-file=/config/genesis.json
-      - --node-private-key-file=/data/key
+      - --data-path=/network/validator-4/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-4/data/key
       - --min-gas-price=0
       - --bootnodes=${BOOTNODE_ENODE}
       - --p2p-port=30303
@@ -122,8 +148,7 @@ services:
       - --nat-method=NONE
       - --profile=ENTERPRISE
     volumes:
-      - ./network/genesis.json:/config/genesis.json:ro
-      - ./network/validator-4/data:/data
+      - chain-network:/network
     expose:
       - "8545"
 
@@ -151,6 +176,10 @@ services:
       interval: 10s
       timeout: 3s
       retries: 6
+
+volumes:
+  chain-network:
+    name: ${COMPOSE_PROJECT_NAME:-richbucks}_chain-network
 
 networks:
   richbucks:

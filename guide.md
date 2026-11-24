@@ -258,6 +258,7 @@ PUBLIC_RPC_URL=https://rpc.richbucks.xyz
 BESU_VERSION=25.1.0
 
 DEPLOYER_PRIVATE_KEY=0x1111111111111111111111111111111111111111111111111111111111111111
+DEPLOYER_ADDRESS=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 TREASURY_ADDRESS=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 CONTRACT_ADDRESS=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
@@ -292,30 +293,36 @@ Replace every placeholder before production.
 
 ---
 
-## 3. Initialize the Besu network (once)
+## 3. Initialize the Besu network (once — in Docker)
 
-On the VPS, with Docker available:
+You do **not** need to SSH and run init by hand for Coolify. On first deploy, the **`chain-init`** container:
+
+1. Writes `genesis.json` + 4 validator keys into the **`chain-network`** Docker volume  
+2. Prefunds `DEPLOYER_ADDRESS` (falls back to `TREASURY_ADDRESS`)  
+3. Exits; later redeploys **reuse** the volume and skip regeneration  
+
+Set in Coolify before first deploy:
+
+```env
+DEPLOYER_ADDRESS=0xYourDeployerAddress
+# or TREASURY_ADDRESS=… (same address is fine)
+```
+
+**Persistent volumes** (Docker-managed; survive redeploys):
+
+| Volume | Contents |
+|--------|----------|
+| `…_chain-network` | Genesis, validator keys, Besu chain data |
+| `…_bot-wallets` | Custodial Teams wallet SQLite |
+
+Do **not** delete `chain-network` unless you intend to wipe the chain. Validator keys never leave the volume / never go in git.
+
+Optional local/dev (host bind layout under `chain/network/`):
 
 ```bash
 cd chain
-chmod +x scripts/*.sh
-
-# Prefund deployer so tooling can send zero-gas txs
 export DEPLOYER_ADDRESS=0xYourDeployerAddress
-./scripts/init-network.sh prod
-```
-
-This creates `chain/network/` (gitignored):
-
-- `genesis.json`
-- `validator-1` … `validator-4` keys under `data/`
-
-**Do not commit or share these keys.**
-
-Dev / acceptance (30s empty blocks):
-
-```bash
-./scripts/init-network.sh dev
+./scripts/init-network.sh prod   # or: ./scripts/init-network.sh dev
 ```
 
 ---
@@ -326,18 +333,16 @@ Dev / acceptance (30s empty blocks):
 
 1. New resource → **Docker Compose** → connect `R1CH101/RichBucks`  
 2. Compose file: `docker-compose.yml` (includes `chain/docker-compose.yml`)  
-3. Paste all env vars from section 2  
-4. Persistent storage:  
-   - `./chain/network` (or bind-mount the initialized network dir)  
-   - volume `bot-wallets`  
-5. Deploy  
+3. Paste all env vars from section 2 (include `DEPLOYER_ADDRESS`)  
+4. Persistent storage: ensure named volumes **`chain-network`** and **`bot-wallets`** are kept (Coolify usually keeps Compose volumes by default — do not mark the app as ephemeral wipe-on-redeploy)  
+5. Deploy — `chain-init` runs automatically  
 
 **Compose note:** root compose uses Compose `include` (Docker Compose **2.20+**). Coolify hosts with older Compose should upgrade Docker Compose or merge the chain services into one file.
 
 ### Option B — SSH on the VPS
 
 ```bash
-# After init-network.sh and .env are ready:
+# chain-init runs on compose up (writes named volume chain-network)
 export BOOTNODE_ENODE=enode://…@validator-1:30303   # can start empty first
 docker compose up -d validator-1
 ./chain/scripts/print-bootnode.sh
@@ -488,7 +493,7 @@ RPC-only nodes sync but do **not** earn proposer RB.
 
 | Data | Where | Action |
 |---|---|---|
-| Besu chain + validator keys | `chain/network/` | Encrypted offsite backup |
+| Besu chain + validator keys | Docker volume `chain-network` | Encrypted offsite backup / volume snapshot |
 | Custodial wallets DB | `bot-wallets` volume / `WALLET_DB_PATH` | Daily backup |
 | `WALLET_ENCRYPTION_KEY` + `DEPLOYER_PRIVATE_KEY` | Password manager | Critical |
 | `ADMIN_TOTP_SECRET` | Password manager | Or users lose 2FA |
@@ -511,7 +516,7 @@ RPC-only nodes sync but do **not** earn proposer RB.
 
 ## 13. Security reminders
 
-- Public repo is fine; **secrets and `chain/network/` keys are not**  
+- Public repo is fine; **secrets and validator keys in `chain-network` are not**  
 - Do not expose QBFT admin RPC on the public internet  
 - `/export-wallet CONFIRM` is DM-only, confirmation required, once per hour  
 - Coworker RPC binds loopback only; P2P defaults to `127.0.0.1` — set `COWORKER_P2P_BIND` to your VPN IP when ready  
@@ -525,7 +530,8 @@ RPC-only nodes sync but do **not** earn proposer RB.
 
 ```bash
 # Init chain (VPS)
-cd chain && DEPLOYER_ADDRESS=0x… ./scripts/init-network.sh prod
+# Coolify: set DEPLOYER_ADDRESS then deploy (chain-init). Local optional:
+# cd chain && DEPLOYER_ADDRESS=0x… ./scripts/init-network.sh prod
 
 # Bootnode
 ./scripts/print-bootnode.sh

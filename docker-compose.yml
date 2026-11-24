@@ -1,7 +1,12 @@
 # Coolify / VPS all-in-one stack
-# 1) cd chain && ./scripts/init-network.sh prod
-# 2) Set BOOTNODE_ENODE after validator-1 first start (see guide.md)
-# 3) Deploy with real secrets (NODE_ENV=production fails closed if placeholders remain)
+#
+# Persistent volumes (Docker-managed — map these in Coolify if it asks; do not use ephemeral /data only):
+#   chain-network  — genesis, validator keys, blockchain (created by chain-init in Docker)
+#   bot-wallets    — custodial Teams wallet SQLite
+#
+# 1) Set env (include DEPLOYER_ADDRESS or TREASURY_ADDRESS so genesis prefills the owner)
+# 2) Deploy — chain-init runs automatically once; later redeploys reuse the volume
+# 3) Set BOOTNODE_ENODE after validator-1 first start (see guide.md)
 #
 # Validators are not host-published. Public RPC = rpc-filter:8549 (ETH/NET/WEB3 only).
 # Bot/admin: expose only on Docker network — point Coolify proxy at service:port.
@@ -53,12 +58,14 @@ services:
       COOKIE_SECURE: "true"
       RPC_URL: http://validator-1:8545
       ADMIN_PORT: 3000
-      GENESIS_PATH: /config/genesis.json
+      GENESIS_PATH: /network/genesis.json
     volumes:
-      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - chain-network:/network:ro
     expose:
       - "3000"
     depends_on:
+      chain-init:
+        condition: service_completed_successfully
       validator-1:
         condition: service_healthy
     networks:
@@ -71,10 +78,13 @@ services:
 
 volumes:
   bot-wallets:
+    name: ${COMPOSE_PROJECT_NAME:-richbucks}_bot-wallets
+  # Re-declare so Coolify/root merge sees it (defined in chain/docker-compose.yml too)
+  chain-network:
+    name: ${COMPOSE_PROJECT_NAME:-richbucks}_chain-network
 
 # Declared here too — Coolify's compose merge doesn't always inherit
-# networks from `include:` (chain/docker-compose.yml), which caused:
-#   service "admin" refers to undefined network richbucks
+# networks from `include:` (chain/docker-compose.yml)
 networks:
   richbucks:
     name: richbucks

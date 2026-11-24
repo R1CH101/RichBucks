@@ -78,6 +78,7 @@ jobs:
           docker build -t ghcr.io/$OWNER_LC/admin:$TAG -t ghcr.io/$OWNER_LC/admin:latest ./admin
           docker build -t ghcr.io/$OWNER_LC/coworker-node:$TAG -t ghcr.io/$OWNER_LC/coworker-node:latest ./chain/coworker
           docker build -t ghcr.io/$OWNER_LC/rpc-filter:$TAG -t ghcr.io/$OWNER_LC/rpc-filter:latest ./chain/rpc-filter
+          docker build -t ghcr.io/$OWNER_LC/chain-init:$TAG -t ghcr.io/$OWNER_LC/chain-init:latest -f ./chain/init/Dockerfile ./chain
           docker push ghcr.io/$OWNER_LC/bot:$TAG
           docker push ghcr.io/$OWNER_LC/bot:latest
           docker push ghcr.io/$OWNER_LC/admin:$TAG
@@ -86,3 +87,5 @@ jobs:
           docker push ghcr.io/$OWNER_LC/coworker-node:latest
           docker push ghcr.io/$OWNER_LC/rpc-filter:$TAG
           docker push ghcr.io/$OWNER_LC/rpc-filter:latest
+          docker push ghcr.io/$OWNER_LC/chain-init:$TAG
+          docker push ghcr.io/$OWNER_LC/chain-init:latest
