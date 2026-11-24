@@ -1,26 +1,159 @@
-# Coolify / VPS all-in-one stack
+# Coolify / VPS all-in-one stack (single file — Coolify does not reliably merge Compose `include:`)
 #
-# Persistent volumes (Docker-managed — map these in Coolify if it asks; do not use ephemeral /data only):
-#   chain-network  — genesis, validator keys, blockchain (created by chain-init in Docker)
+# Persistent volumes:
+#   chain-network  — genesis, validator keys, blockchain (chain-init writes on first boot)
 #   bot-wallets    — custodial Teams wallet SQLite
-#   app-config     — encrypted multi Teams-app registry (admin + bot)
+#   app-config     — encrypted multi Teams-app registry
 #
-# 1) Set env (include DEPLOYER_ADDRESS or TREASURY_ADDRESS so genesis prefills the owner)
-# 2) Deploy — chain-init runs automatically once; later redeploys reuse the volume
-# 3) Set BOOTNODE_ENODE after validator-1 first start (see guide.md)
-#
-# Validators are not host-published. Public RPC = rpc-filter (ETH/NET/WEB3 only).
-# Coolify domains: define services in THIS file (include: services often omit from UI).
-#   bot   → https://bot.richbucks.xyz:3978
-#   admin → https://admin.richbucks.xyz:3000
+# Domains (expose, not host ports):
+#   bot        → https://bot.richbucks.xyz:3978
+#   admin      → https://admin.richbucks.xyz:3000
 #   rpc-filter → https://rpc.richbucks.xyz:8549
-# Use expose (not host ports:) so Coolify proxy can attach domains.
 
-include:
-  - path: chain/docker-compose.yml
+x-besu-common: &besu-common
+  image: hyperledger/besu:${BESU_VERSION:-25.1.0}
+  restart: unless-stopped
+  networks:
+    - richbucks
+  environment:
+    JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
 
 services:
-  # Public JSON-RPC gateway — must live in root compose for Coolify domain picker
+  chain-init:
+    build:
+      context: ./chain
+      dockerfile: init/Dockerfile
+      args:
+        BESU_VERSION: ${BESU_VERSION:-25.1.0}
+    image: ghcr.io/${GHCR_OWNER:-richbucks}/chain-init:${TAG:-latest}
+    container_name: rb-chain-init
+    restart: "no"
+    environment:
+      PROFILE: ${CHAIN_INIT_PROFILE:-prod}
+      DEPLOYER_ADDRESS: ${DEPLOYER_ADDRESS:-}
+      TREASURY_ADDRESS: ${TREASURY_ADDRESS:-}
+    volumes:
+      - chain-network:/network
+    networks:
+      - richbucks
+
+  validator-1:
+    <<: *besu-common
+    container_name: rb-validator-1
+    depends_on:
+      chain-init:
+        condition: service_completed_successfully
+    command:
+      - --data-path=/network/validator-1/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-1/data/key
+      - --min-gas-price=0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3
+      - --rpc-http-cors-origins=none
+      - --host-allowlist=validator-1,rpc-filter,bot,admin,localhost,127.0.0.1
+      - --rpc-ws-enabled=false
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - chain-network:/network
+    expose:
+      - "8545"
+      - "30303"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' http://127.0.0.1:8545 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  validator-2:
+    <<: *besu-common
+    container_name: rb-validator-2
+    depends_on:
+      chain-init:
+        condition: service_completed_successfully
+      validator-1:
+        condition: service_healthy
+    command:
+      - --data-path=/network/validator-2/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-2/data/key
+      - --min-gas-price=0
+      - --bootnodes=${BOOTNODE_ENODE}
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3
+      - --host-allowlist=validator-2,localhost,127.0.0.1
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - chain-network:/network
+    expose:
+      - "8545"
+
+  validator-3:
+    <<: *besu-common
+    container_name: rb-validator-3
+    depends_on:
+      chain-init:
+        condition: service_completed_successfully
+      validator-1:
+        condition: service_healthy
+    command:
+      - --data-path=/network/validator-3/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-3/data/key
+      - --min-gas-price=0
+      - --bootnodes=${BOOTNODE_ENODE}
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3
+      - --host-allowlist=validator-3,localhost,127.0.0.1
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - chain-network:/network
+    expose:
+      - "8545"
+
+  validator-4:
+    <<: *besu-common
+    container_name: rb-validator-4
+    depends_on:
+      chain-init:
+        condition: service_completed_successfully
+      validator-1:
+        condition: service_healthy
+    command:
+      - --data-path=/network/validator-4/data
+      - --genesis-file=/network/genesis.json
+      - --node-private-key-file=/network/validator-4/data/key
+      - --min-gas-price=0
+      - --bootnodes=${BOOTNODE_ENODE}
+      - --p2p-port=30303
+      - --p2p-host=0.0.0.0
+      - --rpc-http-enabled
+      - --rpc-http-host=0.0.0.0
+      - --rpc-http-port=8545
+      - --rpc-http-api=ETH,NET,WEB3
+      - --host-allowlist=validator-4,localhost,127.0.0.1
+      - --nat-method=NONE
+      - --profile=ENTERPRISE
+    volumes:
+      - chain-network:/network
+    expose:
+      - "8545"
+
   rpc-filter:
     build: ./chain/rpc-filter
     image: ghcr.io/${GHCR_OWNER:-richbucks}/rpc-filter:${TAG:-latest}
@@ -32,7 +165,6 @@ services:
       RPC_API_KEY: ${RPC_API_KEY:-}
       RPC_REQUIRE_API_KEY: ${RPC_REQUIRE_API_KEY:-true}
       RPC_RATE_MAX: ${RPC_RATE_MAX:-120}
-      # Helps Coolify associate a generated URL with this component + port
       SERVICE_URL_RPC_FILTER_8549: ${SERVICE_URL_RPC_FILTER_8549:-}
     expose:
       - "8549"
@@ -60,7 +192,6 @@ services:
       WALLET_DB_PATH: /data/wallets.sqlite
       TEAMS_CONFIG_DIR: /config
       BOT_PORT: 3978
-      # Never inject contract owner into the bot (overrides env_file)
       DEPLOYER_PRIVATE_KEY: ""
       ADMIN_PASSWORD: ""
       ADMIN_PASSWORD_HASH: ""
@@ -118,12 +249,9 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME:-richbucks}_bot-wallets
   app-config:
     name: ${COMPOSE_PROJECT_NAME:-richbucks}_app-config
-  # Re-declare so Coolify/root merge sees it (defined in chain/docker-compose.yml too)
   chain-network:
     name: ${COMPOSE_PROJECT_NAME:-richbucks}_chain-network
 
-# Declared here too — Coolify's compose merge doesn't always inherit
-# networks from `include:` (chain/docker-compose.yml)
 networks:
   richbucks:
     name: richbucks

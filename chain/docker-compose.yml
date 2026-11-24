@@ -1,11 +1,8 @@
-# Production / Coolify stack — 4 QBFT validators + filtered public RPC
+# Chain-only compose (local / advanced). Coolify uses the root ../docker-compose.yml
+# which inlines these services — Compose `include:` is unreliable there.
 #
-# Persistent Docker volumes (survive Coolify redeploys — no host bind mounts required):
-#   chain-network  — genesis.json + validator keys + Besu chain data
-#   (bot-wallets is declared in root docker-compose.yml)
-#
-# chain-init runs once in Docker and writes into chain-network if empty.
-# Validators are NOT published on the host. Public RPC = rpc-filter:8549.
+# Persistent volume: chain-network (genesis + keys + Besu data)
+# chain-init writes on first boot. Validators are NOT host-published.
 
 x-besu-common: &besu-common
   image: hyperledger/besu:${BESU_VERSION:-25.1.0}

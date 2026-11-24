@@ -402,12 +402,12 @@ export DEPLOYER_ADDRESS=0xYourDeployerAddress
 ### Option A — Coolify from GitHub
 
 1. New resource → **Docker Compose** → connect `R1CH101/RichBucks`  
-2. Compose file: `docker-compose.yml` (includes `chain/docker-compose.yml`)  
+2. Compose file: root `docker-compose.yml` (single file — chain + bot + admin + rpc-filter)  
 3. Paste all env vars from section 2 (include `DEPLOYER_ADDRESS`)  
 4. Persistent storage: keep named volumes **`chain-network`**, **`bot-wallets`**, and **`app-config`** (Coolify usually keeps Compose volumes — do not wipe on redeploy)  
 5. Deploy — `chain-init` runs automatically  
 
-**Compose note:** root compose uses Compose `include` (Docker Compose **2.20+**). Coolify hosts with older Compose should upgrade Docker Compose or merge the chain services into one file.
+**Compose note:** everything Coolify needs is in the root compose. `chain/docker-compose.yml` remains for chain-only local use.
 
 ### Option B — SSH on the VPS
 
