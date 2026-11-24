@@ -11,9 +11,11 @@ import { assertAdminSecrets, isProduction } from "./secrets";
 import { clientIp, ipAllowed, isLoopback, parseAllowlist } from "./ipAllowlist";
 import { TeamsAppsStore, teamsConfigDir, teamsConfigSecret } from "./teamsAppsStore";
 import { buildTeamsAppZip, buildTeamsManifest } from "./teamsPackage";
+import { resolveContractAddress } from "./resolveContractAddress";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
+const contractAddress = resolveContractAddress();
 assertAdminSecrets();
 
 const teamsSecret = teamsConfigSecret();
@@ -72,7 +74,7 @@ const ABI = [
 function getOwner() {
   const rpc = process.env.RPC_URL || "http://127.0.0.1:8545";
   const key = process.env.DEPLOYER_PRIVATE_KEY || "";
-  const addr = process.env.CONTRACT_ADDRESS || "";
+  const addr = contractAddress || process.env.CONTRACT_ADDRESS || "";
   if (!key || !addr) return null;
   const provider = new JsonRpcProvider(rpc);
   const normalized = key.startsWith("0x") ? key : `0x${key}`;
@@ -299,7 +301,7 @@ app.get("/", requireAuth, async (req, res) => {
       ${tipFlags}
       <div class="card">
         <h2>Public RPC</h2>
-        <p class="muted">${process.env.PUBLIC_RPC_URL || "Set PUBLIC_RPC_URL"} · chainId 88420 · token ${process.env.CONTRACT_ADDRESS || "unset"}</p>
+        <p class="muted">${process.env.PUBLIC_RPC_URL || "Set PUBLIC_RPC_URL"} · chainId 88420 · token ${contractAddress || process.env.CONTRACT_ADDRESS || "unset"}</p>
       </div>`
     )
   );

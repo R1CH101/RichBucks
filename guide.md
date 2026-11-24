@@ -33,7 +33,7 @@ Suggested order:
 - A VPS with Docker (Coolify installed is ideal)
 - A domain (or subdomains) pointing at the VPS
 - Access to Microsoft 365 / Entra as admin (you are IT)
-- Node.js 22+ on a laptop **or** on the VPS (for contract deploy)
+- Node.js 22+ only if you run contract tests locally (Coolify deploys the token via `contract-deploy`)
 - GitHub account `R1CH101` (repo already public)
 
 Clone on the VPS or let Coolify pull the repo:
@@ -56,7 +56,7 @@ Domain: **richbucks.xyz** (Cloudflare). Suggested DNS records → VPS IP:
 | `bot.richbucks.xyz` | Proxied (orange) | Teams webhook HTTPS |
 | `rpc.richbucks.xyz` | Proxied (orange) | Public JSON-RPC HTTPS |
 
-**Public / coworker P2P: disabled for v1** (no `p2p.richbucks.xyz`, do not open port 30303 on the firewall). The four **company validators still peer inside Docker** via `BOOTNODE_ENODE=…@validator-1:30303` — that stays on the private compose network and does not expose the VPS IP.
+**Public / coworker P2P: disabled for v1** (no `p2p.richbucks.xyz`, do not open port 30303 on the firewall). The four **company validators still peer inside Docker** via auto bootnode `…@validator-1:30303` on the private compose network (no public VPS IP).
 
 **v1.1:** Tailscale / WireGuard (or similar) so coworkers can run nodes without publishing the VPS IP on `richbucks.xyz`.
 
@@ -97,17 +97,24 @@ Below: meaning, example shape, and how to generate / obtain each value.
 | `PUBLIC_RPC_URL` | `https://rpc.richbucks.xyz` | Your public HTTPS RPC hostname |
 | `BESU_IMAGE_TAG` | `25.1.0` | Pin Besu image tag (never use env name `BESU_VERSION`) |
 | `EMPTY_BLOCK_PERIOD_SECONDS` | `3600` | Prod heartbeat. Dev genesis uses `30` via `init-network.sh dev` |
-| `BOOTNODE_ENODE` | `enode://abc…@validator-1:30303` | After validator-1 is up: `./chain/scripts/print-bootnode.sh` (rewrites host to `validator-1`) |
+| `BOOTNODE_ENODE` | *(leave empty)* | Optional override. Peers auto-load `enode://…@validator-1:30303` from `/network/bootnode.enode` (or `key.pub`) on the chain volume |
 
-**Getting `BOOTNODE_ENODE`**
+**Bootnode (usually automatic)**
+
+chain-init writes `/network/bootnode.enode` from validator-1’s `key.pub`. Validators 2–4 fill an empty `--bootnodes=` from that file — **no Coolify paste required**.
+
+To print it (debug / coworker VPN later):
 
 ```bash
-# with rb-validator-1 running:
+# On the VPS / Coolify terminal (needs docker + running validator-1):
 ./chain/scripts/print-bootnode.sh
-# → enode://<64 hex pubkey>@validator-1:30303
+# or:
+docker exec rb-validator-1 cat /network/bootnode.enode
+# Coolify may rename the container — find it:
+docker ps -a --format '{{.Names}}' | grep -i validator-1
 ```
 
-Paste into Coolify, then restart validators 2–4 (or the whole stack) so peers can dial the bootnode.
+Do **not** scrape `docker logs` for `enode://` — Besu often never prints it.
 
 ---
 
@@ -117,7 +124,7 @@ Paste into Coolify, then restart validators 2–4 (or the whole stack) so peers 
 |---|---|---|
 | `DEPLOYER_PRIVATE_KEY` | `0x…` 64 hex chars | Generate a fresh key — **this is the contract owner** |
 | `TREASURY_ADDRESS` | `0x…` | Often same as deployer address; or a separate company wallet |
-| `CONTRACT_ADDRESS` | `0x…` | Filled **after** `npm run deploy` (section 5) |
+| `CONTRACT_ADDRESS` | *(leave empty)* | Optional. **`contract-deploy`** writes `/network/contract.address` after validator-1 is up |
 | `DEPLOYER_ADDRESS` | `0x…` | Public address of the deployer key (for genesis prefund) |
 
 **Generate a deployer key (ethers / cast / openssl)**
@@ -330,7 +337,7 @@ BESU_IMAGE_TAG=25.1.0
 DEPLOYER_PRIVATE_KEY=0x1111111111111111111111111111111111111111111111111111111111111111
 DEPLOYER_ADDRESS=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 TREASURY_ADDRESS=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-CONTRACT_ADDRESS=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+CONTRACT_ADDRESS=   # leave empty — contract-deploy writes /network/contract.address
 
 WALLET_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 WALLET_DB_PATH=/data/wallets.sqlite
@@ -353,7 +360,7 @@ COOKIE_SECURE=true
 
 JOIN_ENABLED=false
 NODE_JOIN_API_KEY=coworker-join-token-change-me
-BOOTNODE_ENODE=enode://abcd…@validator-1:30303
+BOOTNODE_ENODE=   # leave empty — auto from chain volume
 
 GHCR_OWNER=r1ch101
 TAG=latest
@@ -365,24 +372,34 @@ Replace every placeholder before production.
 
 ## 3. Initialize the Besu network (once — in Docker)
 
-You do **not** need to SSH and run init by hand for Coolify. On first deploy, the **`chain-init`** container:
+You do **not** need to SSH and run init or contract deploy by hand for Coolify.
 
-1. Writes `genesis.json` + 4 validator keys into the **`chain-network`** Docker volume  
+**`chain-init`** (before RPC exists):
+
+1. Writes `genesis.json` + 4 validator keys + `bootnode.enode` into **`chain-network`**  
 2. Prefunds `DEPLOYER_ADDRESS` (falls back to `TREASURY_ADDRESS`)  
 3. Exits; later redeploys **reuse** the volume and skip regeneration  
+
+**`contract-deploy`** (after validator-1 is healthy):
+
+1. Deploys the RichBucks UUPS proxy (idempotent if `/network/contract.address` already has code)  
+2. Calls `setWelcomeMinter` when `WELCOME_MINTER_PRIVATE_KEY` (or `_ADDRESS`) is set  
+3. Writes `/network/contract.address` — bot/admin read it (no Coolify `CONTRACT_ADDRESS` paste)
 
 Set in Coolify before first deploy:
 
 ```env
 DEPLOYER_ADDRESS=0xYourDeployerAddress
-# or TREASURY_ADDRESS=… (same address is fine)
+DEPLOYER_PRIVATE_KEY=0x…
+WELCOME_MINTER_PRIVATE_KEY=0x…   # separate from deployer
+# or TREASURY_ADDRESS=… (same address as deployer is fine)
 ```
 
 **Persistent volumes** (Docker-managed; survive redeploys):
 
 | Volume | Contents |
 |--------|----------|
-| `…_chain-network` | Genesis, validator keys, Besu chain data |
+| `…_chain-network` | Genesis, validator keys, Besu data, `bootnode.enode`, `contract.address` |
 | `…_bot-wallets` | Custodial Teams wallet SQLite |
 
 Do **not** delete `chain-network` unless you intend to wipe the chain. Validator keys never leave the volume / never go in git.
@@ -412,12 +429,9 @@ export DEPLOYER_ADDRESS=0xYourDeployerAddress
 ### Option B — SSH on the VPS
 
 ```bash
-# chain-init runs on compose up (writes named volume chain-network)
-export BOOTNODE_ENODE=enode://…@validator-1:30303   # can start empty first
-docker compose up -d validator-1
-./chain/scripts/print-bootnode.sh
-# set BOOTNODE_ENODE in .env
+# chain-init writes bootnode.enode; peers auto-resolve (BOOTNODE_ENODE can stay empty)
 docker compose up -d
+./chain/scripts/print-bootnode.sh   # optional debug
 ```
 
 Check:
@@ -432,29 +446,21 @@ curl -s -X POST -H 'Content-Type: application/json' \
 
 ## 5. Deploy the RichBucks contract
 
-From a machine that can reach RPC (SSH tunnel is fine):
+**Coolify / compose:** automatic via the **`contract-deploy`** one-shot (see section 3). Leave `CONTRACT_ADDRESS` empty. Check logs:
 
 ```bash
-# tunnel example:
-ssh -L 8545:127.0.0.1:8545 user@vps
+docker logs rb-contract-deploy
+# → RichBucks proxy: 0x…
+docker exec rb-validator-1 cat /network/contract.address
+```
 
-cd contracts
-npm install
-# .env in repo root with:
-#   RPC_URL=http://127.0.0.1:8545
-#   DEPLOYER_PRIVATE_KEY=0x…
-#   TREASURY_ADDRESS=0x…
-npm test
+**Laptop / local only** (optional — tests or a chain without the compose job):
+
+```bash
+cd contracts && npm i && npm test
+# RPC_URL + DEPLOYER_PRIVATE_KEY in ../.env
 npm run deploy -- --network richbucks
 ```
-
-Copy the printed **proxy address** into Coolify:
-
-```env
-CONTRACT_ADDRESS=0x…
-```
-
-Redeploy / restart **bot** and **admin** so they pick it up.
 
 ---
 
@@ -554,7 +560,7 @@ RPC-only nodes sync but do **not** earn proposer RB.
    - RPC URL: `https://rpc.richbucks.xyz`  
    - Chain ID: `88420`  
    - Currency symbol: `GAS` (native; still free)  
-3. Import token: `CONTRACT_ADDRESS`, symbol `RB`, **0 decimals**  
+3. Import token: address from `/network/contract.address`, symbol `RB`, **0 decimals**  
 4. Or `/export-wallet` in DM and import the private key  
 
 ---
@@ -574,12 +580,12 @@ RPC-only nodes sync but do **not** earn proposer RB.
 
 | Symptom | Check |
 |---|---|
-| Validators not peering | `BOOTNODE_ENODE` host must be `validator-1` on Docker network; restart peers |
+| Validators not peering | Confirm `/network/bootnode.enode` exists (`print-bootnode.sh`); host must be `validator-1`; restart peers |
 | No blocks when idle | Expected up to ~1h in prod; send a tip/tx or use `init-network.sh dev` |
 | Bot 401 from Teams | App ID/secret/tenant; messaging endpoint HTTPS; Teams channel enabled |
 | `/balance` DM fails | Bot must be allowed to create 1:1 chats; user has app installed; try DM the bot first |
 | Contract deploy fails | Prefunded `DEPLOYER_ADDRESS` in genesis; `RPC_URL` reachable; key matches address |
-| Welcome mint fails | `CONTRACT_ADDRESS` set; deployer is owner; `welcomeMintEnabled` true |
+| Welcome mint fails | `/network/contract.address` present; `setWelcomeMinter` done; `welcomeMintEnabled` true |
 | Admin login fails | TOTP time sync; `ADMIN_TOTP_SECRET` matches the QR you scanned |
 
 ---
@@ -599,21 +605,15 @@ RPC-only nodes sync but do **not** earn proposer RB.
 ## Quick command cheat sheet
 
 ```bash
-# Init chain (VPS)
-# Coolify: set DEPLOYER_ADDRESS then deploy (chain-init). Local optional:
-# cd chain && DEPLOYER_ADDRESS=0x… ./scripts/init-network.sh prod
+# Coolify: set DEPLOYER_ADDRESS + DEPLOYER_PRIVATE_KEY (+ WELCOME_MINTER_*) then deploy.
+# chain-init → validators → contract-deploy → bot/admin (automatic).
 
-# Bootnode
-./scripts/print-bootnode.sh
-
-# Stack
-cd .. && docker compose up -d
-
-# Contract
-cd contracts && npm i && npm run deploy -- --network richbucks
+# Bootnode / contract address (debug)
+./chain/scripts/print-bootnode.sh
+docker exec rb-validator-1 cat /network/contract.address
 
 # Add coworker validator
 ./chain/scripts/add-validator.sh 0x…
 ```
 
-When in doubt: chain healthy → contract address in env → bot webhook green in Azure → Teams app in the group chat.
+When in doubt: validators healthy → `contract-deploy` exited 0 → bot webhook green in Azure → Teams app in the group chat.

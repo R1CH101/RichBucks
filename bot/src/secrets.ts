@@ -13,6 +13,17 @@ export function isProduction(): boolean {
 export function assertBotSecrets(): void {
   if (!isProduction()) return;
 
+  // Coolify injects shared project env into every service. Owner key must never
+  // remain in the bot process — strip even if compose blanking was overridden.
+  if ((process.env.DEPLOYER_PRIVATE_KEY || "").trim()) {
+    console.warn("Stripping DEPLOYER_PRIVATE_KEY from bot env (use WELCOME_MINTER_PRIVATE_KEY only).");
+  }
+  delete process.env.DEPLOYER_PRIVATE_KEY;
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.ADMIN_PASSWORD_HASH;
+  delete process.env.ADMIN_TOTP_SECRET;
+  delete process.env.SESSION_SECRET;
+
   const missing: string[] = [];
   const bad = (name: string, value: string | undefined, minLen = 16) => {
     const v = (value || "").trim();
@@ -20,17 +31,10 @@ export function assertBotSecrets(): void {
   };
 
   bad("WALLET_ENCRYPTION_KEY", process.env.WALLET_ENCRYPTION_KEY, 32);
+  // Populated by contract-deploy into env and/or /network/contract.address
   bad("CONTRACT_ADDRESS", process.env.CONTRACT_ADDRESS, 42);
   bad("RPC_URL", process.env.RPC_URL, 8);
   bad("WELCOME_MINTER_PRIVATE_KEY", process.env.WELCOME_MINTER_PRIVATE_KEY, 64);
-
-  // Owner key must never land in the bot process (compose also blanks it).
-  if ((process.env.DEPLOYER_PRIVATE_KEY || "").trim()) {
-    console.error(
-      "Refusing to start bot: DEPLOYER_PRIVATE_KEY is set. Use WELCOME_MINTER_PRIVATE_KEY only and call setWelcomeMinter()."
-    );
-    process.exit(1);
-  }
 
   // Teams apps: either full env bootstrap OR apps will be loaded from /config (checked after seed).
   const hasEnvTeams =

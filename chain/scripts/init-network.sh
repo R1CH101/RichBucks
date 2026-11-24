@@ -75,6 +75,19 @@ for i in range(1, 5):
     if p.exists():
         addrs.append(p.read_text().strip())
 (out / "validators.json").write_text(json.dumps({"validators": addrs}, indent=2) + "\n")
+
+# Docker-DNS bootnode for validators 2–4 (no log scrape)
+pubfile = out / "validator-1" / "data" / "key.pub"
+if pubfile.exists():
+    pub = pubfile.read_text().strip().removeprefix("0x")
+    if len(pub) == 130 and pub.startswith("04"):
+        pub = pub[2:]
+    if len(pub) == 128:
+        enode = f"enode://{pub}@validator-1:30303"
+        (out / "bootnode.enode").write_text(enode + "\n")
+        print(f"Wrote bootnode.enode → {enode}")
+    else:
+        print(f"WARNING: key.pub length {len(pub)} — skip bootnode.enode", file=sys.stderr)
 PY
 
 echo "Done. Genesis: $OUT/genesis.json"

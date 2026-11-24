@@ -25,9 +25,15 @@ export function assertAdminSecrets(): void {
   bad("SESSION_SECRET", process.env.SESSION_SECRET, 32);
   bad("ADMIN_TOTP_SECRET", process.env.ADMIN_TOTP_SECRET, 16);
   bad("DEPLOYER_PRIVATE_KEY", process.env.DEPLOYER_PRIVATE_KEY, 64);
-  bad("CONTRACT_ADDRESS", process.env.CONTRACT_ADDRESS, 42);
   bad("RPC_URL", process.env.RPC_URL, 8);
   bad("ADMIN_ALLOWED_IPS", process.env.ADMIN_ALLOWED_IPS, 7);
+  // Prefer env; contract-deploy also writes /network/contract.address (loaded before this).
+  const contract = (process.env.CONTRACT_ADDRESS || "").trim();
+  if (!contract || PLACEHOLDERS.has(contract) || contract.length < 42) {
+    console.warn(
+      "CONTRACT_ADDRESS unset — wait for contract-deploy or check /network/contract.address."
+    );
+  }
   // Encrypts Teams app registry shared with the bot (same key as wallets by default)
   bad(
     "TEAMS_CONFIG_KEY or WALLET_ENCRYPTION_KEY",

@@ -1,7 +1,7 @@
 # Coolify / VPS all-in-one stack (single file — Coolify does not reliably merge Compose `include:`)
 #
 # Persistent volumes:
-#   chain-network  — genesis, validator keys, blockchain (chain-init writes on first boot)
+#   chain-network  — genesis, keys, chain data, bootnode.enode, contract.address (chain-init + contract-deploy)
 #   bot-wallets    — custodial Teams wallet SQLite
 #   app-config     — encrypted multi Teams-app registry
 #
@@ -18,7 +18,9 @@ x-besu-common: &besu-common
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
   # Inline wrapper (no bind mount — Coolify is unreliable with those).
-  # Hex name avoids locking a Coolify env var to this compose file.
+  # - Strip Coolify BESU_VERSION (picocli maps it to boolean --version).
+  # - If --bootnodes= is empty, derive enode from /network/bootnode.enode or key.pub
+  #   so peers work without pasting BOOTNODE_ENODE into Coolify.
   # $$ → $ after Compose interpolation.
   entrypoint:
     - /bin/bash
@@ -26,7 +28,37 @@ x-besu-common: &besu-common
     - >-
       n=$$(printf '\x42\x45\x53\x55\x5f\x56\x45\x52\x53\x49\x4f\x4e');
       unset "$$n" 2>/dev/null || true;
-      exec /opt/besu/bin/besu-entry.sh "$$@"
+      resolve_boot() {
+        if [[ -f /network/bootnode.enode ]]; then
+          tr -d '[:space:]' </network/bootnode.enode;
+          return 0;
+        fi;
+        if [[ -f /network/validator-1/data/key.pub ]]; then
+          pub=$$(tr -d '[:space:]' </network/validator-1/data/key.pub);
+          pub=$${pub#0x};
+          if [[ $${#pub} -eq 130 && $${pub:0:2} == 04 ]]; then pub=$${pub:2}; fi;
+          if [[ $${#pub} -eq 128 ]]; then echo "enode://$${pub}@validator-1:30303"; return 0; fi;
+        fi;
+        return 1;
+      };
+      args=();
+      for a in "$$@"; do
+        case "$$a" in
+          --bootnodes=)
+            if b=$$(resolve_boot); then args+=("--bootnodes=$$b"); fi;
+            ;;
+          --bootnodes=*)
+            val="$${a#--bootnodes=}";
+            if [[ -z "$$val" ]]; then
+              if b=$$(resolve_boot); then args+=("--bootnodes=$$b"); fi;
+            else
+              args+=("$$a");
+            fi;
+            ;;
+          *) args+=("$$a");;
+        esac;
+      done;
+      exec /opt/besu/bin/besu-entry.sh "$${args[@]}"
     - besu
 
 services:
@@ -195,6 +227,29 @@ services:
       retries: 6
       start_period: 10s
 
+  # After RPC is up: deploy RB proxy (idempotent). Writes /network/contract.address.
+  # Not part of chain-init — that job has no live chain yet.
+  contract-deploy:
+    build: ./contracts
+    image: ghcr.io/${GHCR_OWNER:-richbucks}/contract-deploy:${TAG:-latest}
+    container_name: rb-contract-deploy
+    restart: "no"
+    environment:
+      NETWORK_DIR: /network
+      RPC_URL: http://validator-1:8545
+      CHAIN_ID: ${CHAIN_ID:-88420}
+      DEPLOYER_PRIVATE_KEY: ${DEPLOYER_PRIVATE_KEY}
+      TREASURY_ADDRESS: ${TREASURY_ADDRESS:-}
+      WELCOME_MINTER_PRIVATE_KEY: ${WELCOME_MINTER_PRIVATE_KEY:-}
+      WELCOME_MINTER_ADDRESS: ${WELCOME_MINTER_ADDRESS:-}
+    volumes:
+      - chain-network:/network
+    depends_on:
+      validator-1:
+        condition: service_healthy
+    networks:
+      - richbucks
+
   bot:
     build: ./bot
     image: ghcr.io/${GHCR_OWNER:-richbucks}/bot:${TAG:-latest}
@@ -207,6 +262,7 @@ services:
       WALLET_DB_PATH: /data/wallets.sqlite
       TEAMS_CONFIG_DIR: /config
       BOT_PORT: 3978
+      CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
       DEPLOYER_PRIVATE_KEY: ""
       ADMIN_PASSWORD: ""
       ADMIN_PASSWORD_HASH: ""
@@ -215,11 +271,14 @@ services:
     volumes:
       - bot-wallets:/data
       - app-config:/config
+      - chain-network:/network:ro
     expose:
       - "3978"
     depends_on:
       validator-1:
         condition: service_healthy
+      contract-deploy:
+        condition: service_completed_successfully
     networks:
       - richbucks
     healthcheck:
@@ -241,6 +300,7 @@ services:
       ADMIN_PORT: 3000
       GENESIS_PATH: /network/genesis.json
       TEAMS_CONFIG_DIR: /config
+      CONTRACT_ADDRESS: ${CONTRACT_ADDRESS:-}
     volumes:
       - chain-network:/network:ro
       - app-config:/config
@@ -251,6 +311,8 @@ services:
         condition: service_completed_successfully
       validator-1:
         condition: service_healthy
+      contract-deploy:
+        condition: service_completed_successfully
     networks:
       - richbucks
     healthcheck:

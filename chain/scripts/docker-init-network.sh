@@ -47,8 +47,36 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 1
 fi
 
+write_bootnode_enode() {
+  local pubfile="$OUT/validator-1/data/key.pub"
+  local host="${BOOTNODE_HOST:-validator-1}"
+  local port="${BOOTNODE_PORT:-30303}"
+  if [[ ! -f "$pubfile" ]]; then
+    echo "WARNING: no $pubfile — cannot write bootnode.enode" >&2
+    return 1
+  fi
+  local pub
+  pub="$(tr -d '[:space:]' <"$pubfile")"
+  pub="${pub#0x}"
+  if [[ ${#pub} -eq 130 && "${pub:0:2}" == "04" ]]; then
+    pub="${pub:2}"
+  fi
+  if [[ ${#pub} -ne 128 ]]; then
+    echo "WARNING: key.pub length ${#pub} (want 128) — not writing bootnode.enode" >&2
+    return 1
+  fi
+  local enode="enode://${pub}@${host}:${port}"
+  printf '%s\n' "$enode" >"$OUT/bootnode.enode"
+  echo "Wrote $OUT/bootnode.enode → $enode"
+}
+
 if [[ -f "$OUT/genesis.json" && -f "$OUT/validator-1/data/key" ]]; then
-  echo "Network already initialized at $OUT — skipping."
+  echo "Network already initialized at $OUT — skipping generate."
+  if [[ ! -f "$OUT/bootnode.enode" ]]; then
+    write_bootnode_enode || true
+  else
+    echo "bootnode: $(tr -d '[:space:]' <"$OUT/bootnode.enode")"
+  fi
   echo "==== chain-init success (idempotent) ===="
   exit 0
 fi
@@ -130,6 +158,8 @@ for keydir in "${KEYDIRS[@]}"; do
 done
 VALIDATORS_JSON+=']}'
 echo "$VALIDATORS_JSON" | jq . > "$OUT/validators.json"
+
+write_bootnode_enode || true
 
 if [[ "$(id -u)" -eq 0 ]]; then
   chmod -R a+rwX "$OUT" 2>/dev/null || true

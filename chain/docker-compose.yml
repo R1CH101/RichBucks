@@ -11,13 +11,44 @@ x-besu-common: &besu-common
     - richbucks
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
+  # Strip Coolify BESU_VERSION; fill empty --bootnodes= from volume/key.pub.
   entrypoint:
     - /bin/bash
     - -c
     - >-
       n=$$(printf '\x42\x45\x53\x55\x5f\x56\x45\x52\x53\x49\x4f\x4e');
       unset "$$n" 2>/dev/null || true;
-      exec /opt/besu/bin/besu-entry.sh "$$@"
+      resolve_boot() {
+        if [[ -f /network/bootnode.enode ]]; then
+          tr -d '[:space:]' </network/bootnode.enode;
+          return 0;
+        fi;
+        if [[ -f /network/validator-1/data/key.pub ]]; then
+          pub=$$(tr -d '[:space:]' </network/validator-1/data/key.pub);
+          pub=$${pub#0x};
+          if [[ $${#pub} -eq 130 && $${pub:0:2} == 04 ]]; then pub=$${pub:2}; fi;
+          if [[ $${#pub} -eq 128 ]]; then echo "enode://$${pub}@validator-1:30303"; return 0; fi;
+        fi;
+        return 1;
+      };
+      args=();
+      for a in "$$@"; do
+        case "$$a" in
+          --bootnodes=)
+            if b=$$(resolve_boot); then args+=("--bootnodes=$$b"); fi;
+            ;;
+          --bootnodes=*)
+            val="$${a#--bootnodes=}";
+            if [[ -z "$$val" ]]; then
+              if b=$$(resolve_boot); then args+=("--bootnodes=$$b"); fi;
+            else
+              args+=("$$a");
+            fi;
+            ;;
+          *) args+=("$$a");;
+        esac;
+      done;
+      exec /opt/besu/bin/besu-entry.sh "$${args[@]}"
     - besu
 
 services:

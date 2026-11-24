@@ -28,26 +28,24 @@ chmod +x scripts/*.sh
 ./scripts/init-network.sh prod   # or: dev  (30s empty blocks for testing)
 ```
 
-Start validators (set bootnode after first start — see below):
+Start validators (`BOOTNODE_ENODE` can stay empty — peers auto-read `/network/bootnode.enode`):
 
 ```bash
-export BOOTNODE_ENODE=enode://...@validator-1:30303
 docker compose up -d
+# optional debug:
+./chain/scripts/print-bootnode.sh
 ```
-
-Get the bootnode enode from validator-1 logs (`enode://…@…:30303`). For Docker DNS use host `validator-1` and port `30303`.
 
 ### 2. Contracts
 
-```bash
-cd contracts
-npm install
-npm test
-# with chain RPC up and DEPLOYER_PRIVATE_KEY + RPC_URL in ../.env:
-npm run deploy -- --network richbucks
-```
+On Coolify/compose, **`contract-deploy`** runs after validator-1 and writes `/network/contract.address` (bot/admin pick it up). No laptop deploy step.
 
-Put `CONTRACT_ADDRESS` into `.env`.
+Local/manual:
+
+```bash
+cd contracts && npm i && npm test
+npm run deploy -- --network richbucks   # needs RPC_URL + DEPLOYER_PRIVATE_KEY
+```
 
 ### 3. Bot & admin
 

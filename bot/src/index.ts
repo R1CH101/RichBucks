@@ -13,10 +13,12 @@ import { parseCommand } from "./commands/parse";
 import { assertBotSecrets, assertWalletKeyStrength, isProduction } from "./secrets";
 import { MultiAppCredentialsFactory } from "./multiAppCredentialsFactory";
 import { TeamsAppsStore, teamsConfigDir, teamsConfigSecret } from "./teamsAppsStore";
+import { resolveContractAddress } from "./resolveContractAddress";
 
 dotenv.config({ path: "../.env" });
 dotenv.config();
 
+const contractAddress = resolveContractAddress();
 assertBotSecrets();
 
 const port = Number(process.env.BOT_PORT || 3978);
@@ -64,7 +66,7 @@ if (isProduction() && !process.env.WELCOME_MINTER_PRIVATE_KEY) {
 
 const chain = new ChainClient(
   process.env.RPC_URL || "http://127.0.0.1:8545",
-  process.env.CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000001",
+  contractAddress || "0x0000000000000000000000000000000000000001",
   minterKey
 );
 
@@ -236,7 +238,7 @@ async function handleMessage(context: TurnContext) {
       const canTip = await chain.canTipToday(me.address);
       let msg = `**Balance:** ${bal.toString()} RB\n**Address:** \`${me.address}\`\n**Today's /give:** ${canTip ? "available" : "already used"}`;
       if (showMetamask) {
-        msg += `\n\nRPC: \`${process.env.PUBLIC_RPC_URL || "ask admin"}\` · chainId **88420** · token \`${process.env.CONTRACT_ADDRESS}\``;
+        msg += `\n\nRPC: \`${process.env.PUBLIC_RPC_URL || "ask admin"}\` · chainId **88420** · token \`${contractAddress}\``;
       }
       await replyPrivately(context, msg, "Sent your balance in a DM.");
       return;
