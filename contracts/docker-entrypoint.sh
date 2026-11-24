@@ -63,4 +63,29 @@ mkdir -p "$NETWORK_DIR/openzeppelin"
 rm -rf /app/.openzeppelin
 ln -sfn "$NETWORK_DIR/openzeppelin" /app/.openzeppelin
 
+# If we have no live proxy yet, drop any leftover OZ cache before Hardhat starts
+# (in-process retry after InvalidDeployment is unreliable — Manifest stays loaded).
+ADDR_FILE="$NETWORK_DIR/contract.address"
+NEED_CLEAR=1
+if [[ -f "$ADDR_FILE" ]]; then
+  EXISTING="$(tr -d '[:space:]' <"$ADDR_FILE")"
+  if [[ -n "$EXISTING" ]]; then
+    export EXISTING
+    CODE="$(node -e "
+      fetch(process.env.RPC_URL,{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getCode',params:[process.env.EXISTING,'latest']})})
+        .then(r=>r.json()).then(j=>console.log(j.result||'0x'))
+        .catch(()=>console.log('0x'));
+    ")"
+    if [[ -n "$CODE" && "$CODE" != "0x" && "$CODE" != "0x0" ]]; then
+      NEED_CLEAR=0
+      echo "Existing proxy $EXISTING has code — keeping OpenZeppelin manifest."
+    fi
+  fi
+fi
+if [[ "$NEED_CLEAR" -eq 1 ]]; then
+  echo "No live proxy — clearing $NETWORK_DIR/openzeppelin before deploy."
+  find "$NETWORK_DIR/openzeppelin" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+fi
+
 exec npx hardhat run scripts/deploy.ts --network richbucks
