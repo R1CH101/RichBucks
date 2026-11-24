@@ -17,8 +17,17 @@ x-besu-common: &besu-common
     - richbucks
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
-  # Wrapper strips a Coolify-injected env that collides with Besu CLI flags
-  entrypoint: ["/bin/bash", "/rb-besu-entry.sh"]
+  # Inline wrapper (no bind mount — Coolify is unreliable with those).
+  # Hex name avoids locking a Coolify env var to this compose file.
+  # $$ → $ after Compose interpolation.
+  entrypoint:
+    - /bin/bash
+    - -c
+    - >-
+      n=$$(printf '\x42\x45\x53\x55\x5f\x56\x45\x52\x53\x49\x4f\x4e');
+      unset "$$n" 2>/dev/null || true;
+      exec /opt/besu/bin/besu-entry.sh "$$@"
+    - besu
 
 services:
   chain-init:
@@ -65,7 +74,6 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
-      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
       - "30303"
@@ -75,7 +83,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 40s
+      start_period: 60s
 
   validator-2:
     <<: *besu-common
@@ -102,7 +110,6 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
-      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
@@ -131,7 +138,6 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
-      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
@@ -160,7 +166,6 @@ services:
       - --profile=ENTERPRISE
     volumes:
       - chain-network:/network
-      - ./chain/scripts/rb-besu-entry.sh:/rb-besu-entry.sh:ro
     expose:
       - "8545"
 
