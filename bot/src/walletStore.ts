@@ -66,9 +66,13 @@ export class WalletStore {
     if (!cols.some((c) => c.name === "email")) {
       this.db.exec(`ALTER TABLE wallets ADD COLUMN email TEXT`);
     }
-    this.db.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_wallets_email ON wallets(email) WHERE email IS NOT NULL`
-    );
+    try {
+      this.db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_wallets_email ON wallets(email) WHERE email IS NOT NULL`
+      );
+    } catch (e) {
+      console.warn("wallet email unique index skipped:", e);
+    }
   }
 
   private mapRow(row: {

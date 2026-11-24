@@ -36,6 +36,12 @@ function websiteBase(): string {
   return (process.env.PUBLIC_WEBSITE_URL || "https://richbucks.xyz").replace(/\/$/, "");
 }
 
+function truncate(s: string, max: number): string {
+  const t = String(s || "").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, Math.max(0, max - 1)).trimEnd() + "…";
+}
+
 /**
  * Teams app manifest aligned with schema 1.30 + current Microsoft bot/group-chat guidance:
  * - bots.scopes includes groupChat + team
@@ -64,6 +70,13 @@ export function buildTeamsManifest(
     { title: "export-wallet", description: "DM only: export key" },
   ];
 
+  // Schema limits: short ≤30, full ≤100, description.short ≤80
+  const fullName = truncate(
+    app.label ? `RichBucks (${app.label}) v${version}` : `RichBucks bot v${version}`,
+    100
+  );
+  const shortDesc = truncate(`Tip RichBucks in Teams (v${version})`, 80);
+
   return {
     $schema: "https://developer.microsoft.com/json-schemas/teams/v1.30/MicrosoftTeams.schema.json",
     manifestVersion: "1.30",
@@ -88,12 +101,10 @@ export function buildTeamsManifest(
     name: {
       short: "RichBucks",
       // Version in full name so Teams Admin / client show the upload landed
-      full: app.label
-        ? `RichBucks (${app.label}) v${version}`
-        : `RichBucks bot v${version}`,
+      full: fullName,
     },
     description: {
-      short: `Tip RichBucks in Teams (v${version})`,
+      short: shortDesc,
       full: `Tip coworkers with /give, check /balance, transfer with /send, and view the leaderboard. Private company chain token (RB). Package v${version}.`,
     },
     icons: {

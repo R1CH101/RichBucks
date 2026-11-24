@@ -464,12 +464,25 @@ app.get("/teams-apps", requireAuth, (req, res) => {
         .map((a) => {
           const last = a.packageVersion || "—";
           const next = nextPackageVersion(a.packageVersion);
+          const pkgId = a.packageId || a.appId;
           return `<tr>
-          <td>${escapeHtml(a.label)}</td>
-          <td><code>${escapeHtml(a.appId)}</code></td>
+          <td>
+            <div>${escapeHtml(a.label)}</div>
+            <div class="muted" style="margin-top:0.35rem;font-size:0.8rem">App ID<br/><code>${escapeHtml(a.appId)}</code></div>
+          </td>
           <td>
             <div><strong>v${escapeHtml(String(last))}</strong></div>
-            <div class="muted">next download → <code>v${escapeHtml(next)}</code></div>
+            <div class="muted">next zip → <code>v${escapeHtml(next)}</code></div>
+            <div class="muted" style="margin-top:0.35rem;font-size:0.8rem">Package id (manifest)<br/><code>${escapeHtml(pkgId)}</code></div>
+            <form method="post" action="/teams-apps/package-meta" style="margin-top:0.5rem">
+              ${csrfField(req)}
+              <input type="hidden" name="id" value="${escapeHtml(a.id)}" />
+              <label style="margin-top:0.35rem">Match existing Teams catalog GUID</label>
+              <input name="packageId" value="${escapeHtml(pkgId)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+              <label>Baseline version (optional)</label>
+              <input name="packageVersion" value="${escapeHtml(a.packageVersion || "")}" placeholder="1.0.0" />
+              <button type="submit" style="margin-top:0.5rem;padding:0.4rem 0.7rem;font-size:0.85rem">Save package id</button>
+            </form>
           </td>
           <td style="white-space:nowrap">
             <a class="btn" style="margin-top:0;padding:0.4rem 0.7rem;font-size:0.85rem" href="/teams-apps/${escapeHtml(a.id)}/package.zip">Download zip (bumps version)</a>
@@ -483,7 +496,7 @@ app.get("/teams-apps", requireAuth, (req, res) => {
         </tr>`;
         })
         .join("")
-    : `<tr><td colspan="4" class="muted">No apps yet — add your personal and/or company bot registrations below.</td></tr>`;
+    : `<tr><td colspan="3" class="muted">No apps yet — add your personal and/or company bot registrations below.</td></tr>`;
 
   res.send(
     layout(
@@ -493,14 +506,14 @@ app.get("/teams-apps", requireAuth, (req, res) => {
       <p class="sub">Each single-tenant Azure Bot / app registration that should hit this RichBucks bot. Same messaging URL for all: <code>https://${escapeHtml(botHost)}/api/messages</code>. Passwords are stored encrypted; never shown again after save.</p>
       <div class="card">
         <h2>Teams app package</h2>
-        <p class="muted">Download bumps <code>manifest.version</code> every time (and puts it in the zip filename + app full name). After upload, Teams Admin → Manage apps → RichBucks should show that same version — if it doesn’t, the replace didn’t land.</p>
-        <p class="muted">Package <code>id</code> stays stable. Azure messaging endpoint: <code>https://${escapeHtml(botHost)}/api/messages</code>.</p>
-        <p class="muted"><strong>Group chat:</strong> update the existing org app with the new zip → accept Update in Teams → Apps → RichBucks → Add → pick a chat (or Add agents and bots / <code>@RichBucks</code>).</p>
+        <p class="muted">Download bumps <code>manifest.version</code> every time (zip filename + app full name include it). Teams Admin → Manage apps must show that same version after upload.</p>
+        <p class="muted"><strong>Important:</strong> package <code>id</code> must match the app already in your Teams catalog (copy GUID from Manage apps). If it doesn’t, upload creates a second RichBucks instead of updating group-chat scopes.</p>
+        <p class="muted">Azure messaging endpoint: <code>https://${escapeHtml(botHost)}/api/messages</code>. Group chat: update existing org app → accept Update → Add to a chat / <code>@RichBucks</code>.</p>
       </div>
       <div class="card">
         <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
           <thead><tr>
-            <th align="left">Label</th><th align="left">App ID</th><th align="left">Package version</th><th align="left">Download</th>
+            <th align="left">App</th><th align="left">Package</th><th align="left">Download</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -517,6 +530,21 @@ app.get("/teams-apps", requireAuth, (req, res) => {
       flash
     )
   );
+});
+
+app.post("/teams-apps/package-meta", requireAuth, requireCsrf, (req, res) => {
+  try {
+    teamsApps.setPackageMeta(String(req.body.id || ""), {
+      packageId: String(req.body.packageId || ""),
+      packageVersion: String(req.body.packageVersion || ""),
+    });
+    setFlash(req, "ok", "Package id / baseline version saved. Download zip next — version will bump from that baseline.");
+    res.redirect("/teams-apps");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    setFlash(req, "err", msg);
+    res.redirect("/teams-apps");
+  }
 });
 
 app.get("/teams-apps/:id/package.zip", requireAuth, async (req, res) => {

@@ -74,11 +74,13 @@ const chain = new ChainClient(
 const HELP = [
   "**RichBucks** — private office token on your company chain.",
   "`/balance` — your RB + address (**DM**; in a group you'll get a private reply)",
-  "`/give @Name|email [reason]` — tip **1 RB** once per day (minted; group or DM)",
-  "`/send @Name|email <whole amount>` — transfer RB you hold (group or DM)",
-  "`/leaderboard` — top tippers / earners / proposers (group or DM)",
+  "`/give @Name|email [reason]` — tip **1 RB** once per day (minted)",
+  "`/send @Name|email <whole amount>` — transfer RB you hold",
+  "`/leaderboard` — top tippers / earners / proposers",
   "`/export-wallet CONFIRM` — **DM only**: export private key (once/hour)",
   "`/help` — this list",
+  "",
+  "In a **group chat or channel**, @mention RichBucks or use the `/` menu (e.g. `@RichBucks /give @Name nice one`).",
 ].join("\n");
 
 const exportHits = new Map<string, number>();

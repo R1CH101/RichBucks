@@ -38,6 +38,10 @@ function normalizeGuid(s: string): string {
   return s.trim().toLowerCase();
 }
 
+function isGuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
+}
+
 /** Always produce a higher semver so Teams Admin accepts the replace. */
 export function bumpSemver(v: string): string {
   const parts = String(v || "1.0.0")
@@ -90,12 +94,20 @@ export class TeamsAppsStore {
     const appPassword = (process.env.MICROSOFT_APP_PASSWORD || "").trim();
     const tenantId = (process.env.MICROSOFT_APP_TENANT_ID || "").trim();
     if (!appId || !appPassword || !tenantId) return false;
-    this.upsert({
+    const app = this.upsert({
       label: "Bootstrap (env)",
       appId,
       appPassword,
       tenantId,
     });
+    const packageId = (process.env.TEAMS_PACKAGE_ID || "").trim();
+    const packageVersion = (process.env.TEAMS_PACKAGE_VERSION || "").trim();
+    if (packageId || packageVersion) {
+      this.setPackageMeta(app.id, {
+        packageId: packageId || undefined,
+        packageVersion: packageVersion || undefined,
+      });
+    }
     return true;
   }
 
@@ -172,6 +184,42 @@ export class TeamsAppsStore {
     if (next.length === apps.length) return false;
     this.save(next);
     return true;
+  }
+
+  /**
+   * Pin the Teams catalog package GUID (manifest `id`) so re-uploads update the same org app.
+   * Optional packageVersion sets the baseline before the next download bump.
+   */
+  setPackageMeta(
+    id: string,
+    input: { packageId?: string; packageVersion?: string }
+  ): TeamsApp {
+    const apps = this.load();
+    const idx = apps.findIndex((a) => a.id === id);
+    if (idx < 0) throw new Error("app not found");
+    const prev = apps[idx]!;
+    let packageId = prev.packageId || prev.appId;
+    if (input.packageId !== undefined) {
+      const raw = input.packageId.trim();
+      if (raw) {
+        if (!isGuid(raw)) throw new Error("packageId must be a GUID");
+        packageId = normalizeGuid(raw);
+      }
+    }
+    let packageVersion = prev.packageVersion;
+    if (input.packageVersion !== undefined) {
+      const raw = input.packageVersion.trim();
+      if (raw) {
+        if (!/^\d+\.\d+\.\d+$/.test(raw)) {
+          throw new Error("packageVersion must look like 1.2.3");
+        }
+        packageVersion = raw;
+      }
+    }
+    const app = { ...prev, packageId, packageVersion };
+    apps[idx] = app;
+    this.save(apps);
+    return { ...app };
   }
 
   /**

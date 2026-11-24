@@ -14,12 +14,20 @@ export function extractEmail(text: string): string | undefined {
   return m ? m[0].toLowerCase() : undefined;
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function parseCommand(text: string): ParsedCommand {
   const email = extractEmail(text);
-  const cleaned = text
-    .replace(/<at>[^<]*<\/at>/gi, "")
-    .replace(/@[^\s]+/g, "")
-    .replace(EMAIL_RE, "")
+  // Strip email before @[...] so "alice@co.com" is not eaten as an @mention
+  let cleaned = text;
+  if (email) {
+    cleaned = cleaned.replace(new RegExp(escapeRegExp(email), "ig"), " ");
+  }
+  cleaned = cleaned
+    .replace(/<at>[^<]*<\/at>/gi, " ")
+    .replace(/(^|[\s])@[^\s]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   const lower = cleaned.toLowerCase();

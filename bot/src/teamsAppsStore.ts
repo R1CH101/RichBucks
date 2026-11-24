@@ -64,12 +64,26 @@ export class TeamsAppsStore {
     const appPassword = (process.env.MICROSOFT_APP_PASSWORD || "").trim();
     const tenantId = (process.env.MICROSOFT_APP_TENANT_ID || "").trim();
     if (!appId || !appPassword || !tenantId) return false;
-    this.upsert({
+    const app = this.upsert({
       label: "Bootstrap (env)",
       appId,
       appPassword,
       tenantId,
     });
+    const packageId = (process.env.TEAMS_PACKAGE_ID || "").trim();
+    const packageVersion = (process.env.TEAMS_PACKAGE_VERSION || "").trim();
+    if (packageId || packageVersion) {
+      const apps = this.load();
+      const idx = apps.findIndex((a) => a.id === app.id);
+      if (idx >= 0) {
+        apps[idx] = {
+          ...apps[idx]!,
+          packageId: packageId || apps[idx]!.packageId || appId,
+          packageVersion: packageVersion || apps[idx]!.packageVersion,
+        };
+        this.save(apps);
+      }
+    }
     return true;
   }
 
