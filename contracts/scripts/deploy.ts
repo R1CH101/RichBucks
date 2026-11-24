@@ -43,12 +43,25 @@ async function ensureWelcomeMinter(proxy: { welcomeMinter: () => Promise<string>
 }
 
 async function main() {
-  const [deployer] = await ethers.getSigners();
-  const treasury = process.env.TREASURY_ADDRESS || deployer.address;
+  const signers = await ethers.getSigners();
+  if (!signers.length) {
+    throw new Error(
+      "No deployer signer — set DEPLOYER_PRIVATE_KEY in Coolify for contract-deploy."
+    );
+  }
+  const [deployer] = signers;
+  const treasury = (process.env.TREASURY_ADDRESS || "").trim() || deployer.address;
   const addrFile = contractAddressPath();
 
   console.log("Deployer:", deployer.address);
   console.log("Treasury:", treasury);
+  const bal = await ethers.provider.getBalance(deployer.address);
+  console.log("Deployer balance (wei):", bal.toString());
+  if (bal === 0n) {
+    console.warn(
+      "Deployer balance is 0. If deploy fails, set DEPLOYER_ADDRESS to this address before first chain-init (or wipe chain-network and redeploy)."
+    );
+  }
 
   if (fs.existsSync(addrFile)) {
     const existing = fs.readFileSync(addrFile, "utf8").trim();

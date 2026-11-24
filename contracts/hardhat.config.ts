@@ -6,10 +6,9 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: "../.env" });
 dotenv.config();
 
-const pk = process.env.DEPLOYER_PRIVATE_KEY
-  ? [process.env.DEPLOYER_PRIVATE_KEY.startsWith("0x")
-      ? process.env.DEPLOYER_PRIVATE_KEY
-      : `0x${process.env.DEPLOYER_PRIVATE_KEY}`]
+const rawPk = (process.env.DEPLOYER_PRIVATE_KEY || "").trim();
+const pk = rawPk
+  ? [rawPk.startsWith("0x") ? rawPk : `0x${rawPk}`]
   : [];
 
 const config: HardhatUserConfig = {
@@ -23,6 +22,10 @@ const config: HardhatUserConfig = {
       url: process.env.RPC_URL || "http://127.0.0.1:8545",
       chainId: Number(process.env.CHAIN_ID || 88420),
       accounts: pk,
+      // Private Besu chain uses zeroBaseFee — force 0 so unfunded edge cases
+      // and non-zero eth_gasPrice guesses don't brick deploy.
+      gasPrice: 0,
+      gas: 12_000_000,
     },
   },
 };
