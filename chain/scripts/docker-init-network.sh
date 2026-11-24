@@ -3,31 +3,51 @@
 # Idempotent when genesis + validator-1 key already exist.
 set -euo pipefail
 
-LOG="${NETWORK_DIR:-/network}/chain-init.log"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
-# Mirror everything to the volume so Coolify failures are still diagnosable
-exec > >(tee -a "$LOG") 2>&1
+export PATH="/opt/besu/bin:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+BESU_BIN="${BESU_BIN:-/opt/besu/bin/besu.real}"
+if [[ ! -x "$BESU_BIN" ]]; then
+  BESU_BIN="$(command -v besu.real 2>/dev/null || command -v besu || true)"
+fi
 
-echo "==== chain-init begin pid=$$ ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) ===="
+OUT="${NETWORK_DIR:-/network}"
+mkdir -p "$OUT" || true
+# Coolify/besu-entry.sh may re-exec as user `besu`; ensure volume is writable
+if [[ "$(id -u)" -eq 0 ]]; then
+  chmod -R a+rwX "$OUT" 2>/dev/null || true
+fi
+
+LOG="$OUT/chain-init.log"
+# Logging must never abort init (permission issues on leftover volumes)
+if touch "$LOG" 2>/dev/null; then
+  exec > >(tee -a "$LOG") 2>&1
+else
+  echo "WARNING: cannot write $LOG — logging to stdout only" >&2
+fi
+
+echo "==== chain-init begin pid=$$ uid=$(id -u) ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) ===="
 echo "args: $*"
-echo "profile=${PROFILE:-} network_dir=${NETWORK_DIR:-} deployer_set=${DEPLOYER_ADDRESS:+yes} treasury_set=${TREASURY_ADDRESS:+yes}"
+echo "profile=${PROFILE:-} network_dir=$OUT deployer_set=${DEPLOYER_ADDRESS:+yes} treasury_set=${TREASURY_ADDRESS:+yes}"
+echo "besu_bin=$BESU_BIN path=$PATH"
 
 PROFILE="${PROFILE:-prod}"
-OUT="${NETWORK_DIR:-/network}"
 CONFIG="${QBFT_CONFIG:-/qbft/qbftConfig.${PROFILE}.json}"
 DEPLOYER="${DEPLOYER_ADDRESS:-${TREASURY_ADDRESS:-}}"
 DEPLOYER="$(printf '%s' "$DEPLOYER" | tr -d '[:space:]"'"'"'')"
 
-echo "besu=$(command -v besu || echo MISSING) jq=$(command -v jq || echo MISSING) bash=$BASH_VERSION"
+echo "jq=$(command -v jq || echo MISSING) bash=$BASH_VERSION"
 echo "config=$CONFIG out=$OUT"
+
+if [[ ! -x "$BESU_BIN" ]]; then
+  echo "Besu binary not found/executable: $BESU_BIN" >&2
+  ls -la /opt/besu/bin >&2 || true
+  exit 1
+fi
 
 if [[ ! -f "$CONFIG" ]]; then
   echo "Missing QBFT config: $CONFIG" >&2
   ls -la /qbft >&2 || true
   exit 1
 fi
-
-mkdir -p "$OUT"
 
 if [[ -f "$OUT/genesis.json" && -f "$OUT/validator-1/data/key" ]]; then
   echo "Network already initialized at $OUT — skipping."
@@ -66,7 +86,7 @@ else
 fi
 
 set -x
-besu operator generate-blockchain-config \
+"$BESU_BIN" operator generate-blockchain-config \
   --config-file="$WORKDIR/qbftConfig.work.json" \
   --to="$WORKDIR/generated" \
   --private-key-file-name=key
@@ -109,6 +129,11 @@ for keydir in "${KEYDIRS[@]}"; do
 done
 VALIDATORS_JSON+=']}'
 echo "$VALIDATORS_JSON" | jq . > "$OUT/validators.json"
+
+# Validators run as user besu
+if [[ "$(id -u)" -eq 0 ]]; then
+  chmod -R a+rwX "$OUT" 2>/dev/null || true
+fi
 
 rm -rf "$WORKDIR"
 echo "Done. Genesis + keys written to $OUT (Docker volume)."

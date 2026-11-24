@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Replaces /opt/besu/bin/besu in the chain-init image.
-# Coolify often runs ENTRYPOINT `besu` with our script as args (exit 2).
-# Bare/script invocations → chain-init; real CLI subcommands → besu.real.
+# Coolify often restores ENTRYPOINT besu / besu-entry.sh; bare calls must run init.
+# Real CLI subcommands (operator, --version, --print-paths-and-exit, …) → besu.real.
 set -euo pipefail
-if [[ $# -eq 0 \
-  || "${1:-}" == /docker-init-network.sh \
-  || "${1:-}" == /chain-init-entrypoint.sh \
-  || "${1:-}" == *docker-init-network.sh ]]; then
+export PATH="/opt/besu/bin:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+
+if [[ $# -eq 0 ]]; then
   exec /bin/bash /docker-init-network.sh
 fi
+
+case "${1:-}" in
+  /docker-init-network.sh|/chain-init-entrypoint.sh|*docker-init-network.sh|*chain-init-entrypoint.sh)
+    exec /bin/bash /docker-init-network.sh
+    ;;
+esac
+
 exec /opt/besu/bin/besu.real "$@"

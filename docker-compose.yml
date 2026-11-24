@@ -27,8 +27,10 @@ services:
         BESU_VERSION: ${BESU_VERSION:-25.1.0}
     image: ghcr.io/${GHCR_OWNER:-richbucks}/chain-init:${TAG:-latest}
     restart: "no"
-    # Do not set compose `command`. Coolify may drop `entrypoint` and feed
-    # command args to `besu`; the image wraps `besu` so that still runs init.
+    user: "0:0"
+    # Image also replaces besu-entry.sh + wraps besu so Coolify entrypoint
+    # restores still run init. Do not set compose `command`.
+    entrypoint: ["/chain-init-entrypoint.sh"]
     environment:
       PROFILE: ${CHAIN_INIT_PROFILE:-prod}
       NETWORK_DIR: /network
