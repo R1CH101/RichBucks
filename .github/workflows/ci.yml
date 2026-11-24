@@ -90,6 +90,7 @@ jobs:
           docker build -t ghcr.io/$OWNER_LC/rpc-filter:$TAG -t ghcr.io/$OWNER_LC/rpc-filter:latest ./chain/rpc-filter
           docker build -t ghcr.io/$OWNER_LC/chain-init:$TAG -t ghcr.io/$OWNER_LC/chain-init:latest -f ./chain/init/Dockerfile ./chain
           docker build -t ghcr.io/$OWNER_LC/contract-deploy:$TAG -t ghcr.io/$OWNER_LC/contract-deploy:latest ./contracts
+          docker build -t ghcr.io/$OWNER_LC/besu-node:$TAG -t ghcr.io/$OWNER_LC/besu-node:latest ./chain/besu-node
           docker push ghcr.io/$OWNER_LC/bot:$TAG
           docker push ghcr.io/$OWNER_LC/bot:latest
           docker push ghcr.io/$OWNER_LC/admin:$TAG
@@ -102,3 +103,5 @@ jobs:
           docker push ghcr.io/$OWNER_LC/chain-init:latest
           docker push ghcr.io/$OWNER_LC/contract-deploy:$TAG
           docker push ghcr.io/$OWNER_LC/contract-deploy:latest
+          docker push ghcr.io/$OWNER_LC/besu-node:$TAG
+          docker push ghcr.io/$OWNER_LC/besu-node:latest

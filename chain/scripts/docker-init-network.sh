@@ -70,33 +70,18 @@ write_bootnode_enode() {
   echo "Wrote $OUT/bootnode.enode → $enode"
 }
 
-# Coolify restores stock Besu ENTRYPOINT and drops our compose bootnode wrapper.
-# static-nodes.json is read from data-path regardless — this is the reliable peer path.
+# Besu static-nodes.json requires a numeric IP (not Docker DNS names like validator-1).
+# Hostname enodes are kept in bootnode.enode for humans; the besu-node image entrypoint
+# resolves validator-1 → IPv4 at container start and rewrites each validator's static-nodes.
 write_validator_static_nodes() {
-  local enode=""
-  if [[ -f "$OUT/bootnode.enode" ]]; then
-    enode="$(tr -d '[:space:]' <"$OUT/bootnode.enode")"
-  fi
-  if [[ -z "$enode" ]]; then
-    write_bootnode_enode || true
-    if [[ -f "$OUT/bootnode.enode" ]]; then
-      enode="$(tr -d '[:space:]' <"$OUT/bootnode.enode")"
-    fi
-  fi
-  if [[ -z "$enode" ]]; then
-    echo "WARNING: no bootnode enode — cannot write static-nodes.json" >&2
-    return 1
-  fi
   local i
-  for i in 2 3 4; do
+  for i in 1 2 3 4; do
     local dest="$OUT/validator-$i/data"
     mkdir -p "$dest"
-    printf '["%s"]\n' "$enode" >"$dest/static-nodes.json"
-    echo "Wrote $dest/static-nodes.json"
+    # Empty placeholder — entrypoint fills IP-based enodes on boot for 2–4
+    printf '[]\n' >"$dest/static-nodes.json"
   done
-  # validator-1 is the bootnode — no static peers required
-  mkdir -p "$OUT/validator-1/data"
-  printf '[]\n' >"$OUT/validator-1/data/static-nodes.json"
+  echo "Wrote empty static-nodes.json placeholders (IP filled at validator start)"
 }
 
 if [[ -f "$OUT/genesis.json" && -f "$OUT/validator-1/data/key" ]]; then

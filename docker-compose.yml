@@ -11,55 +11,21 @@
 #   rpc-filter → https://rpc.richbucks.xyz:8549
 
 x-besu-common: &besu-common
-  image: hyperledger/besu:${BESU_IMAGE_TAG:-25.1.0}
+  # Custom image: Coolify restores image ENTRYPOINT; stock Besu ignores our compose wrapper
+  # and rejects DNS names in static-nodes. This image resolves validator-1 → IPv4 on boot.
+  build:
+    context: ./chain/besu-node
+    dockerfile: Dockerfile
+    args:
+      BESU_IMAGE_TAG: ${BESU_IMAGE_TAG:-25.1.0}
+  image: ghcr.io/${GHCR_OWNER:-richbucks}/besu-node:${TAG:-latest}
   restart: unless-stopped
   networks:
     - richbucks
   environment:
     JAVA_OPTS: ${BESU_JAVA_OPTS:--Xmx1g}
-  # Inline wrapper (no bind mount — Coolify is unreliable with those).
-  # - Strip Coolify BESU_VERSION (picocli maps it to boolean --version).
-  # - If --bootnodes= is empty, derive enode from /network/bootnode.enode or key.pub
-  #   so peers work without pasting BOOTNODE_ENODE into Coolify.
-  # $$ → $ after Compose interpolation.
-  entrypoint:
-    - /bin/bash
-    - -c
-    - >-
-      n=$$(printf '\x42\x45\x53\x55\x5f\x56\x45\x52\x53\x49\x4f\x4e');
-      unset "$$n" 2>/dev/null || true;
-      resolve_boot() {
-        if [[ -f /network/bootnode.enode ]]; then
-          tr -d '[:space:]' </network/bootnode.enode;
-          return 0;
-        fi;
-        if [[ -f /network/validator-1/data/key.pub ]]; then
-          pub=$$(tr -d '[:space:]' </network/validator-1/data/key.pub);
-          pub=$${pub#0x};
-          if [[ $${#pub} -eq 130 && $${pub:0:2} == 04 ]]; then pub=$${pub:2}; fi;
-          if [[ $${#pub} -eq 128 ]]; then echo "enode://$${pub}@validator-1:30303"; return 0; fi;
-        fi;
-        return 1;
-      };
-      args=();
-      for a in "$$@"; do
-        case "$$a" in
-          --bootnodes=)
-            if b=$$(resolve_boot); then args+=("--bootnodes=$$b"); fi;
-            ;;
-          --bootnodes=*)
-            val="$${a#--bootnodes=}";
-            if [[ -z "$$val" ]]; then
-              if b=$$(resolve_boot); then args+=("--bootnodes=$$b"); fi;
-            else
-              args+=("$$a");
-            fi;
-            ;;
-          *) args+=("$$a");;
-        esac;
-      done;
-      exec /opt/besu/bin/besu-entry.sh "$${args[@]}"
-    - besu
+    BOOTNODE_HOST: validator-1
+    BOOTNODE_PORT: "30303"
 
 services:
   chain-init:
